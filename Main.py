@@ -14,8 +14,7 @@ params = {
     'lr': 0.001,
     'num_epochs': 10,
     'num_steps': 5,
-    'num_actions': 2,
-    'num_outputs': 1,
+    'num_actions': 4,
     'buffer_max_length': 10000,  # Set a large buffer size
     'buffer_min_length': 1000,  # Set minimum transitions before sampling
     'sample_batch_size': 32  # Batch size for sampling from the buffer

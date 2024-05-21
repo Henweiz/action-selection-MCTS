@@ -85,7 +85,7 @@ class AlphaZero:
             states = batch.experience.first['obs']
             actions = batch.experience.second['action']
             rewards = batch.experience.second['reward']
-            next_states = batch.experience.second['next_obs']
+            next_states = batch.experience.second['obs'] # Not used atm
             
             # Calculate returns (May need to change)
             returns = rewards 
