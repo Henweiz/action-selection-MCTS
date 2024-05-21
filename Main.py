@@ -20,10 +20,11 @@ params = {
     'sample_batch_size': 32  # Batch size for sampling from the buffer
 }
 
-def main(unused_arg):
+if __name__ == '__main__':
     env = jumanji.make(params['env'])
     env = AutoResetWrapper(env)
     params['num_actions'] = env.action_spec.num_values
     agent = AlphaZero(params, env)
+    agent.train(agent.timestep)
 
 

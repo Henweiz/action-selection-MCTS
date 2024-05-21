@@ -16,17 +16,18 @@ class AlphaZero:
         self.key = jax.random.PRNGKey(params['seed'])
         self.env = env
 
-        self.state, self.timestep = jax.hit(env.reset)(self.key)
-        self._observation_spec = env.observation_spec
-        self._action_spec = env.action_spec
-        self._target_period = env.target_period
+        self.state, self.timestep = jax.jit(self.env.reset)(self.key)
+        self._observation_spec = self.env.observation_spec
+        self._action_spec = self.env.action_spec
+        print(self._observation_spec)
         # Neural net and optimiser.
         self.policy_network = PolicyNetwork(num_actions=self._action_spec.num_values)
         self.value_network = ValueNetwork()
         self.policy_optimizer = optax.adam(params['lr'])
         self.value_optimizer = optax.adam(params['lr'])
 
-        input_shape = self._observation_spec.shape
+        input_shape = self._observation_spec.board.shape
+        print(input_shape)
 
         key1, key2 = jax.random.split(self.key)
         
@@ -49,7 +50,7 @@ class AlphaZero:
             sample_batch_size=params['sample_batch_size']
         )
         # Initialize the buffer's state
-        fake_initial_data = {"obs": jnp.zeros(input_shape), "reward": jnp.array(0.0)}
+        fake_initial_data = self.timestep
         self.buffer_state = self.buffer.init(fake_initial_data)
 
         self.policy_apply_fn = jax.jit(self.policy_train_state.apply_fn)
@@ -79,7 +80,8 @@ class AlphaZero:
         return loss
 
     def train(self, timestep):
-        self.buffer = self.buffer.add(self.state, timestep)
+        self.buffer_state = self.buffer.add(self.buffer_state, timestep)
+
         if self.buffer.can_sample(self.buffer_state):
             batch = self.buffer.sample(self.buffer_state, self.key)
             states = batch.experience.first['obs']
@@ -98,6 +100,7 @@ class AlphaZero:
             policy_loss = self.update_policy(states, actions, advantages)
             
             return policy_loss, value_loss
+        
 
     def select_action(self, observation):
         logits = self.policy_apply_fn(self.policy_train_state.params, observation[None])
