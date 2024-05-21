@@ -60,12 +60,12 @@ class AlphaZero:
     def compute_policy_loss(self, params, observations, actions, advantages):
         logits = self.policy_apply_fn(params, observations)
         action_probs = jnp.take_along_axis(logits, actions[:, None], axis=-1).squeeze()
-        loss = -jnp.mean(jnp.log(action_probs) * advantages)
+        loss = -jnp.mean(jnp.log(action_probs) * advantages) #
         return loss
 
     def compute_value_loss(self, params, observations, returns):
         values = self.value_apply_fn(params, observations)
-        loss = jnp.mean((returns - values.squeeze()) ** 2)
+        loss = jnp.mean((returns - values.squeeze()) ** 2) #MSE Loss
         return loss
 
     def update_policy(self, observations, actions, advantages):
@@ -87,14 +87,16 @@ class AlphaZero:
             rewards = batch.experience.second['reward']
             next_states = batch.experience.second['next_obs']
             
-            # Calculate returns (could also include more complex logic for computing returns)
-            returns = rewards # For simplicity, use rewards as returns; in practice, you may need to compute discounted returns
+            # Calculate returns (May need to change)
+            returns = rewards 
+            
+            value_loss = self.update_value(states, returns)
 
-            # Compute advantages (could use generalized advantage estimation or other methods)
-            advantages = returns - np.mean(returns)
+            # Compute advantages (Not sure if we need to compute advantages, TODO: Look into Alphazero loss functions)
+            advantages = returns - value_loss
 
             policy_loss = self.update_policy(states, actions, advantages)
-            value_loss = self.update_value(states, returns)
+            
             return policy_loss, value_loss
 
     def select_action(self, observation):
