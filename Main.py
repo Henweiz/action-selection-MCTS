@@ -6,11 +6,10 @@ from flax import linen as nn
 import optax
 from agent import AlphaZero
 import jumanji
-from jumanji.env import Environment
-from jumanji.environments import Game2048
+from jumanji.wrappers import AutoResetWrapper
 
 params = {
-    'env': Game2048,
+    'env': 'Game2048-v1',
     'seed': 42,
     'lr': 0.001,
     'num_epochs': 10,
@@ -130,7 +129,9 @@ class AlphaZero:
 '''
 
 def main(unused_arg):
-    params['num_actions'] = params['env'].action_spec.num_values
-    agent = AlphaZero(params)
+    env = jumanji.make(params['env'])
+    env = AutoResetWrapper(env)
+    params['num_actions'] = env.action_spec.num_values
+    agent = AlphaZero(params, env)
 
 

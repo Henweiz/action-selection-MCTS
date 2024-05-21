@@ -12,10 +12,14 @@ from network import PolicyNetwork, ValueNetwork
 from flax.training import train_state
 
 class AlphaZero: 
-    def __init__(self, params):
-        self._observation_spec = params['env'].observation_spec
-        self._action_spec = params['env'].action_spec
-        self._target_period = params['env'].target_period
+    def __init__(self, params, env):
+        self.key = jax.random.PRNGKey(params['seed'])
+        self.env = env
+
+        self.state, self.timestep = jax.hit(env.reset)(self.key)
+        self._observation_spec = env.observation_spec
+        self._action_spec = env.action_spec
+        self._target_period = env.target_period
         # Neural net and optimiser.
         self.policy_network = PolicyNetwork(num_actions=self._action_spec.num_values)
         self.value_network = ValueNetwork()
@@ -23,18 +27,18 @@ class AlphaZero:
         self.value_optimizer = optax.adam(params['lr'])
 
         input_shape = self._observation_spec.shape
-        self.key = jax.random.PRNGKey(params['seed'])
 
+        key1, key2 = jax.random.split(self.key)
         
         self.policy_train_state = train_state.TrainState.create(
             apply_fn=self.policy_network.apply,
-            params=self.policy_network.init(self.key, jnp.ones((1, *input_shape)))['params'],
+            params=self.policy_network.init(key1, jnp.ones((1, *input_shape)))['params'],
             tx=self.policy_optimizer
         )
 
         self.value_train_state = train_state.TrainState.create(
             apply_fn=self.value_network.apply,
-            params=self.value_network.init(self.key, jnp.ones((1, *input_shape)))['params'],
+            params=self.value_network.init(key2, jnp.ones((1, *input_shape)))['params'],
             tx=self.value_optimizer
         )
 
@@ -74,14 +78,33 @@ class AlphaZero:
         self.value_train_state = self.value_train_state.apply_gradients(grads=grads)
         return loss
 
-    def train(self, batch):
-        observations, actions, advantages, returns = batch
-        policy_loss = self.update_policy(observations, actions, advantages)
-        value_loss = self.update_value(observations, returns)
-        return policy_loss, value_loss
+    def train(self, timestep):
+        self.buffer = self.buffer.add(self.state, timestep)
+        if self.buffer.can_sample(self.buffer_state):
+            batch = self.buffer.sample(self.buffer_state, self.key)
+            states = batch.experience.first['obs']
+            actions = batch.experience.second['action']
+            rewards = batch.experience.second['reward']
+            next_states = batch.experience.second['next_obs']
+            
+            # Calculate returns (could also include more complex logic for computing returns)
+            returns = rewards # For simplicity, use rewards as returns; in practice, you may need to compute discounted returns
+
+            # Compute advantages (could use generalized advantage estimation or other methods)
+            advantages = returns - np.mean(returns)
+
+            policy_loss = self.update_policy(states, actions, advantages)
+            value_loss = self.update_value(states, returns)
+            return policy_loss, value_loss
 
     def select_action(self, observation):
         logits = self.policy_apply_fn(self.policy_train_state.params, observation[None])
         action_probs = jnp.squeeze(logits)
         action = jax.random.choice(jax.random.PRNGKey(np.random.randint(1e6)), a=len(action_probs), p=action_probs)
         return action
+    
+    def take_action(self, observation):
+        action = self.select_action(observation)
+        new_state, timestep = self.env.step(self.state, action)
+
+        return new_state, timestep
