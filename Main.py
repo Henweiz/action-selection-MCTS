@@ -4,10 +4,17 @@ import flashbax as fbx
 from flax.training import train_state
 from flax import linen as nn
 import optax
+from agent import AlphaZero
+import jumanji
+from jumanji.env import Environment
+from jumanji.environments import Game2048
 
 params = {
+    'env': Game2048,
+    'seed': 42,
     'lr': 0.001,
     'num_epochs': 10,
+    'num_steps': 5,
     'num_actions': 2,
     'num_outputs': 1,
     'buffer_max_length': 10000,  # Set a large buffer size
@@ -23,13 +30,15 @@ def mse_loss(predicted_values, true_values):
     """ Mean squared error loss function for the value network. """
     return jnp.mean((predicted_values - true_values) ** 2)
 
+'''
 class PolicyNetwork(nn.Module):
     """A simple policy network that outputs a probability distribution over actions."""
-    num_actions: int  # Number of possible actions
+    num_actions: int = 4  # Number of possible actions
+    input_shape: int = 4  # Number of inputs from the environment
 
     @nn.compact
     def __call__(self, x):
-        x = nn.Dense(4)(x)
+        x = nn.Dense(self.input_shape)(x)
         x = nn.relu(x)
         x = nn.Dense(2)(x)
         x = nn.relu(x)
@@ -40,6 +49,7 @@ class PolicyNetwork(nn.Module):
 class ValueNetwork(nn.Module):
     """A simple value network."""
     num_outputs: int = 1
+    input_shape: int = 4 
 
     @nn.compact
     def __call__(self, x):
@@ -117,8 +127,10 @@ class AlphaZero:
             self.run_episode(subkey)
             self.train_step(rng_key)
 
+'''
 
-
-
+def main(unused_arg):
+    params['num_actions'] = params['env'].action_spec.num_values
+    agent = AlphaZero(params)
 
 
