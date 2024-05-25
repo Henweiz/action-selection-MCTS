@@ -12,35 +12,36 @@ from jumanji.types import StepType
 params = {
     'env': 'Game2048-v1',
     'seed': 42,
-    'lr': 0.001,
+    'lr': 0.01,
     'num_epochs': 10,
-    'num_steps': 5,
+    'num_steps': 500,
     'num_actions': 4,
-    'buffer_max_length': 50,  # Set a large buffer size
-    'buffer_min_length': 2,  # Set minimum transitions before sampling
-    'sample_batch_size': 32  # Batch size for sampling from the buffer
+    'buffer_max_length': 5000,  # Set a large buffer size
+    'buffer_min_length': 3,  # Set minimum transitions before sampling
+    'sample_batch_size': 16  # Batch size for sampling from the buffer
 }
 
 
-def train(timesteps, agent: AlphaZero, env):
-     key = jax.random.PRNGKey(params['seed'])
-     state, timestep = jax.jit(env.reset)(key)
-     total_policy_loss = 0 
-     total_value_loss = 0 
+def train(timesteps, agent: AlphaZero, env, last):
+    key = jax.random.PRNGKey(params['seed'])
+    state, timestep = jax.jit(env.reset)(key)
+    total_policy_loss = 0 
+    total_value_loss = 0 
+    total_steps = 0
 
-     for global_step in range(timesteps):
+    for global_step in range(timesteps):
         actions = agent.get_actions(state)
         actions = mask_actions(jnp.squeeze(actions), state.action_mask)
         action = jnp.argmax(actions, axis=-1)
         #print(state)
         #print(f"Actions: {actions}")
-        print(f"Action taken: {action}")
+        #print(f"Action taken: {action}")
         
         next_state, next_timestep = env.step(state, action)
-        print(f"Reward: {next_timestep.reward}")
+        #print(f"Reward: {next_timestep.reward}")
 
-        if global_step % 10 == 0:
-            print(f"Current Training Step: {global_step}")
+        #if global_step % 10 == 0:
+        #    print(f"Current Training Step: {global_step}")
 
         policy_loss, value_loss = agent.update(timestep, actions)
         total_policy_loss += policy_loss
@@ -51,10 +52,13 @@ def train(timesteps, agent: AlphaZero, env):
         timestep = next_timestep
         
         ''' REMOVE THE COMMENT BELOW TO GET THE VISUALS OF THE GAME.'''
-        #env.render(state)
-
+        if last:
+            env.render(state)
+        total_steps = global_step
         if timestep.step_type == StepType.LAST:
             break;
+    print(f"Avg policy loss: {total_policy_loss / total_steps}")
+    print(f"Avg value loss: {total_value_loss / total_steps}")
 
 # Maskes the action, since we use softmax in our network we can change the masked values to 0. (I think)
 def mask_actions(actions, mask):
@@ -66,5 +70,10 @@ if __name__ == '__main__':
     params['num_actions'] = env.action_spec.num_values
     agent = AlphaZero(params, env)
 
-    #TODO: Add episode loops as well.
-    train(100, agent, env)
+
+    for epoch in range(params['num_epochs']):
+        print(f"Current epoch: {epoch}")
+        if epoch == params['num_epochs']-1:
+            train(params['num_steps'], agent, env, True)
+        else:
+            train(params['num_steps'], agent, env, False)

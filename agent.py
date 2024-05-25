@@ -57,6 +57,7 @@ class AlphaZero:
         self.policy_grad_fn = jax.value_and_grad(self.compute_policy_loss)
         self.value_grad_fn = jax.value_and_grad(self.compute_value_loss)
 
+
     def compute_policy_loss(self, params, states, actions, advantages):
         logits = self.policy_apply_fn(params, states)
         
@@ -72,15 +73,18 @@ class AlphaZero:
 
         return loss
 
+
     def compute_value_loss(self, params, states, returns):
         values = self.value_apply_fn(params, states)
         loss = jnp.mean((returns - values) ** 2) #MSE Loss
         return loss
 
+
     def update_policy(self, states, actions, advantages):
         loss, grads = self.policy_grad_fn(self.policy_train_state.params, states, actions, advantages)
         self.policy_train_state = self.policy_train_state.apply_gradients(grads=grads)
         return loss
+
 
     def update_value(self, states, returns):
         loss, grads = self.value_grad_fn(self.value_train_state.params, states, returns)
@@ -98,11 +102,12 @@ class AlphaZero:
             
             # Calculate returns (May need to change)
             returns = rewards 
+            values = self.value_apply_fn(self.value_train_state.params, states)
             #print(f"Board states: {states.shape}")            
             value_loss = self.update_value(states, returns)
 
             # Compute advantages (Not sure if we need to compute advantages, TODO: Look into Alphazero loss functions)
-            advantages = returns - value_loss
+            advantages = returns - values
 
             policy_loss = self.update_policy(states, actions, advantages)
             
@@ -111,7 +116,6 @@ class AlphaZero:
         # Not sure if we need to return 0, 0. Guess that it does not matter...
         return 0, 0
         
-
     def get_actions(self, state):
         #print(state)
         #TODO: there's an issue with batches, first if fixes the input when we get a batchless state
