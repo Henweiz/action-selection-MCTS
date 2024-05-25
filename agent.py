@@ -14,12 +14,12 @@ from flax.training import train_state
 class AlphaZero: 
     def __init__(self, params, env):
         self.key = jax.random.PRNGKey(params['seed'])
-        self.env = env
 
-        self.state, self.timestep = jax.jit(self.env.reset)(self.key)
-        self._observation_spec = self.env.observation_spec
-        self._action_spec = self.env.action_spec
-        print(self._observation_spec)
+        # TODO: Think those are not really needed. Check if we can remove it. 
+        _, self.timestep = jax.jit(env.reset)(self.key)
+        self._observation_spec = env.observation_spec
+        self._action_spec = env.action_spec
+        #print(self._action_spec.num_values)
         # Neural net and optimiser.
         self.policy_network = PolicyNetwork(num_actions=self._action_spec.num_values)
         self.value_network = ValueNetwork()
@@ -27,19 +27,19 @@ class AlphaZero:
         self.value_optimizer = optax.adam(params['lr'])
 
         input_shape = self._observation_spec.board.shape
-        print(input_shape)
+        #print(input_shape)
 
         key1, key2 = jax.random.split(self.key)
         
         self.policy_train_state = train_state.TrainState.create(
             apply_fn=self.policy_network.apply,
-            params=self.policy_network.init(key1, jnp.ones((1, *input_shape)))['params'],
+            params=self.policy_network.init(key1, jnp.ones((1, *input_shape))),
             tx=self.policy_optimizer
         )
 
         self.value_train_state = train_state.TrainState.create(
             apply_fn=self.value_network.apply,
-            params=self.value_network.init(key2, jnp.ones((1, *input_shape)))['params'],
+            params=self.value_network.init(key2, jnp.ones((1, *input_shape))),
             tx=self.value_optimizer
         )
 
@@ -50,48 +50,55 @@ class AlphaZero:
             sample_batch_size=params['sample_batch_size']
         )
         # Initialize the buffer's state
-        fake_initial_data = self.timestep
-        self.buffer_state = self.buffer.init(fake_initial_data)
+        self.buffer_state = self.buffer.init(self.timestep)
 
         self.policy_apply_fn = jax.jit(self.policy_train_state.apply_fn)
         self.value_apply_fn = jax.jit(self.value_train_state.apply_fn)
         self.policy_grad_fn = jax.value_and_grad(self.compute_policy_loss)
         self.value_grad_fn = jax.value_and_grad(self.compute_value_loss)
 
-    def compute_policy_loss(self, params, observations, actions, advantages):
-        logits = self.policy_apply_fn(params, observations)
-        action_probs = jnp.take_along_axis(logits, actions[:, None], axis=-1).squeeze()
-        loss = -jnp.mean(jnp.log(action_probs) * advantages) #
+    def compute_policy_loss(self, params, states, actions, advantages):
+        logits = self.policy_apply_fn(params, states)
+        
+        # Compute the log probabilities
+        log_action_probs = jnp.log(logits)
+        
+        # Select the log probability of the chosen action
+        log_prob_chosen_action = jnp.argmax(log_action_probs, axis=-1)
+        
+        # Compute the policy loss (negative log prob weighted by advantage)
+        #print(advantages)
+        loss = --jnp.mean(log_prob_chosen_action * advantages)
+
         return loss
 
-    def compute_value_loss(self, params, observations, returns):
-        values = self.value_apply_fn(params, observations)
-        loss = jnp.mean((returns - values.squeeze()) ** 2) #MSE Loss
+    def compute_value_loss(self, params, states, returns):
+        values = self.value_apply_fn(params, states)
+        loss = jnp.mean((returns - values) ** 2) #MSE Loss
         return loss
 
-    def update_policy(self, observations, actions, advantages):
-        loss, grads = self.policy_grad_fn(self.policy_train_state.params, observations, actions, advantages)
+    def update_policy(self, states, actions, advantages):
+        loss, grads = self.policy_grad_fn(self.policy_train_state.params, states, actions, advantages)
         self.policy_train_state = self.policy_train_state.apply_gradients(grads=grads)
         return loss
 
-    def update_value(self, observations, returns):
-        loss, grads = self.value_grad_fn(self.value_train_state.params, observations, returns)
+    def update_value(self, states, returns):
+        loss, grads = self.value_grad_fn(self.value_train_state.params, states, returns)
         self.value_train_state = self.value_train_state.apply_gradients(grads=grads)
         return loss
 
-    def train(self, timestep):
+    def update(self, timestep, actions):
         self.buffer_state = self.buffer.add(self.buffer_state, timestep)
 
         if self.buffer.can_sample(self.buffer_state):
-            batch = self.buffer.sample(self.buffer_state, self.key)
-            states = batch.experience.first['obs']
-            actions = batch.experience.second['action']
-            rewards = batch.experience.second['reward']
-            next_states = batch.experience.second['obs'] # Not used atm
+            batch = self.buffer.sample(self.buffer_state, self.key).experience
+            #print(batch)
+            states = batch.first.observation.board
+            rewards = batch.second.reward
             
             # Calculate returns (May need to change)
             returns = rewards 
-            
+            #print(f"Board states: {states.shape}")            
             value_loss = self.update_value(states, returns)
 
             # Compute advantages (Not sure if we need to compute advantages, TODO: Look into Alphazero loss functions)
@@ -101,15 +108,21 @@ class AlphaZero:
             
             return policy_loss, value_loss
         
+        # Not sure if we need to return 0, 0. Guess that it does not matter...
+        return 0, 0
+        
 
-    def select_action(self, observation):
-        logits = self.policy_apply_fn(self.policy_train_state.params, observation[None])
-        action_probs = jnp.squeeze(logits)
-        action = jax.random.choice(jax.random.PRNGKey(np.random.randint(1e6)), a=len(action_probs), p=action_probs)
-        return action
+    def get_actions(self, state):
+        #print(state)
+        #TODO: there's an issue with batches, first if fixes the input when we get a batchless state
+        if len(state.board.shape) == 2:
+            state = state.board[None, ...]
+        else:
+            state = state.board
+        actions = self.policy_apply_fn(self.policy_train_state.params, state)
+        return actions
     
-    def take_action(self, observation):
-        action = self.select_action(observation)
-        new_state, timestep = self.env.step(self.state, action)
+    def take_action(self, state, action):
+        new_state, timestep = self.env.step(state, action)
 
         return new_state, timestep

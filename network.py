@@ -23,6 +23,8 @@ class PolicyNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, x):
+
+        x = x.reshape((x.shape[0], -1)) #flatten, do not that we get errors when we do not input batches
         x = nn.Dense(4)(x)
         x = nn.relu(x)
         x = nn.Dense(2)(x)
@@ -61,6 +63,7 @@ class ValueNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, x):
+        x = x.reshape((x.shape[0], -1)) # flatten
         x = nn.Dense(8)(x)
         # x = nn.relu(x)
         # x = nn.Dense(8)(x)
