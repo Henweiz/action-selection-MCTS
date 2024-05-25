@@ -49,6 +49,9 @@ def train(timesteps, agent: AlphaZero, env):
         # Update the observation
         state = next_state
         timestep = next_timestep
+        
+        ''' REMOVE THE COMMENT BELOW TO GET THE VISUALS OF THE GAME.'''
+        #env.render(state)
 
         if timestep.step_type == StepType.LAST:
             break;
