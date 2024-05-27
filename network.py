@@ -24,10 +24,10 @@ class PolicyNetwork(nn.Module):
     @nn.compact
     def __call__(self, x):
 
-        x = x.reshape((x.shape[0], -1)) #flatten, do not that we get errors when we do not input batches
-        x = nn.Dense(40)(x)
+        x = jnp.reshape(x, (x.shape[0], -1)) #flatten, do not that we get errors when we do not input batches
+        x = nn.Dense(64)(x)
         x = nn.relu(x)
-        x = nn.Dense(20)(x)
+        x = nn.Dense(64)(x)
         x = nn.relu(x)
         x = nn.Dense(self.num_actions)(x)
         return nn.softmax(x)
@@ -59,16 +59,16 @@ labels = jnp.array([[1, 0], [0, 1], [0, 1], [1, 0]])  # One-hot encoding
 # Define the Value Network
 class ValueNetwork(nn.Module):
     """A simple value network."""
-    num_outputs: int = 1
+    #num_outputs: int = 1
 
     @nn.compact
     def __call__(self, x):
-        x = x.reshape((x.shape[0], -1)) # flatten
-        x = nn.Dense(8)(x)
+        x = jnp.reshape(x, (x.shape[0], -1)) # flatten
+        x = nn.Dense(64)(x)
         x = nn.relu(x)
-        x = nn.Dense(20)(x)
+        x = nn.Dense(64)(x)
         x = nn.relu(x)
-        x = nn.Dense(self.num_outputs)(x)
+        x = nn.Dense(1)(x)
         return x
 '''
 # Initialize the network and parameters

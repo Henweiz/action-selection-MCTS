@@ -125,8 +125,3 @@ class AlphaZero:
             state = state.board
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
         return actions
-    
-    def take_action(self, state, action):
-        new_state, timestep = self.env.step(state, action)
-
-        return new_state, timestep
