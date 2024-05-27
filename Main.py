@@ -21,6 +21,11 @@ params = {
     'sample_batch_size': 16  # Batch size for sampling from the buffer
 }
 
+@jax.jit
+def env_step(timestep, action): 
+    next_state, next_timestep = env.step(timestep, action)
+    return next_state, next_timestep
+
 
 def train(timesteps, agent: AlphaZero, env, last):
     key = jax.random.PRNGKey(params['seed'])
@@ -37,7 +42,7 @@ def train(timesteps, agent: AlphaZero, env, last):
         #print(f"Actions: {actions}")
         #print(f"Action taken: {action}")
         
-        next_state, next_timestep = env.step(state, action)
+        next_state, next_timestep = env_step(state, action)
         #print(f"Reward: {next_timestep.reward}")
 
         #if global_step % 10 == 0:
