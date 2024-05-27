@@ -34,9 +34,7 @@ def train(timesteps, agent: AlphaZero, env, last):
     total_policy_loss = 0
     total_value_loss = 0
     total_steps = 0
-    batch_size = params['sample_batch_size']  # Define batch_size here
 
-    root_fn, recurrent_fn = create_mctx_model()
 
     for global_step in range(timesteps):
         actions = agent.get_actions(state)
@@ -65,6 +63,9 @@ def train(timesteps, agent: AlphaZero, env, last):
     print(f"Avg policy loss: {total_policy_loss / total_steps}")
     print(f"Avg value loss: {total_value_loss / total_steps}")
 
+# Maskes the action, since we use softmax in our network we can change the masked values to 0. (I think)
+def mask_actions(actions, mask):
+    return jnp.where(mask, actions, 0)
 
 if __name__ == '__main__':
     env = jumanji.make(params['env'])

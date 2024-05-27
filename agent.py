@@ -14,6 +14,7 @@ from flax.training import train_state
 class AlphaZero: 
     def __init__(self, params, env):
         self.key = jax.random.PRNGKey(params['seed'])
+        self.env = env
 
         # TODO: Think those are not really needed. Check if we can remove it. 
         _, self.timestep = jax.jit(env.reset)(self.key)
@@ -69,7 +70,7 @@ class AlphaZero:
         
         # Compute the policy loss (negative log prob weighted by advantage)
         #print(advantages)
-        loss = --jnp.mean(log_prob_chosen_action * advantages)
+        loss = -jnp.mean(log_prob_chosen_action * advantages)
 
         return loss
 
@@ -118,10 +119,24 @@ class AlphaZero:
         
     def get_actions(self, state):
         #print(state)
-        #TODO: there's an issue with batches, first if fixes the input when we get a batchless state
+        #todo: there's an issue with batches, first if fixes the input when we get a batchless state
         if len(state.board.shape) == 2:
             state = state.board[None, ...]
         else:
             state = state.board
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
+        actions = jnp.ravel(actions)
+        # print(f"Actions shape: {actions.shape}")
         return actions
+        
+    def get_value(self, state):
+        #print(state)
+        #todo: there's an issue with batches, first if fixes the input when we get a batchless state
+        if len(state.board.shape) == 2:
+            state = state.board[None, ...]
+        else:
+            state = state.board
+        value = self.value_apply_fn(self.value_train_state.params, state)
+        value = jnp.ravel(value)[0]
+        print(f"Values shape: {value.shape}")
+        return value
