@@ -12,13 +12,13 @@ from jumanji.types import StepType
 params = {
     'env': 'Game2048-v1',
     'seed': 42,
-    'lr': 0.01,
-    'num_epochs': 10,
+    'lr': 0.05,
+    'num_epochs': 100,
     'num_steps': 500,
     'num_actions': 4,
     'buffer_max_length': 5000,  # Set a large buffer size
-    'buffer_min_length': 3,  # Set minimum transitions before sampling
-    'sample_batch_size': 16  # Batch size for sampling from the buffer
+    'buffer_min_length': 10,  # Set minimum transitions before sampling
+    'sample_batch_size': 32  # Batch size for sampling from the buffer
 }
 
 @jax.jit
@@ -62,6 +62,7 @@ def train(timesteps, agent: AlphaZero, env, last):
         total_steps = global_step
         if timestep.step_type == StepType.LAST:
             break;
+    print(f"Total steps: {total_steps}")
     print(f"Avg policy loss: {total_policy_loss / total_steps}")
     print(f"Avg value loss: {total_value_loss / total_steps}")
 
