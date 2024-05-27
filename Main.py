@@ -4,121 +4,76 @@ import flashbax as fbx
 from flax.training import train_state
 from flax import linen as nn
 import optax
+from agent import AlphaZero
+import jumanji
+from jumanji.wrappers import AutoResetWrapper
+from jumanji.types import StepType
 
 params = {
-    'lr': 0.001,
+    'env': 'Game2048-v1',
+    'seed': 42,
+    'lr': 0.01,
     'num_epochs': 10,
-    'num_actions': 2,
-    'num_outputs': 1,
-    'buffer_max_length': 10000,  # Set a large buffer size
-    'buffer_min_length': 1000,  # Set minimum transitions before sampling
-    'sample_batch_size': 32  # Batch size for sampling from the buffer
+    'num_steps': 500,
+    'num_actions': 4,
+    'buffer_max_length': 5000,  # Set a large buffer size
+    'buffer_min_length': 3,  # Set minimum transitions before sampling
+    'sample_batch_size': 16  # Batch size for sampling from the buffer
 }
 
-def ce_loss(logits, actions, advantages):
-    """ Cross-entropy loss function for the policy network. """
-    return -jnp.mean(advantages * jax.nn.log_softmax(logits)[jnp.arange(actions.shape[0]), actions])
 
-def mse_loss(predicted_values, true_values):
-    """ Mean squared error loss function for the value network. """
-    return jnp.mean((predicted_values - true_values) ** 2)
+def train(timesteps, agent: AlphaZero, env, last):
+    key = jax.random.PRNGKey(params['seed'])
+    state, timestep = jax.jit(env.reset)(key)
+    total_policy_loss = 0 
+    total_value_loss = 0 
+    total_steps = 0
 
-class PolicyNetwork(nn.Module):
-    """A simple policy network that outputs a probability distribution over actions."""
-    num_actions: int  # Number of possible actions
+    for global_step in range(timesteps):
+        actions = agent.get_actions(state)
+        actions = mask_actions(jnp.squeeze(actions), state.action_mask)
+        action = jnp.argmax(actions, axis=-1)
+        #print(state)
+        #print(f"Actions: {actions}")
+        #print(f"Action taken: {action}")
+        
+        next_state, next_timestep = env.step(state, action)
+        #print(f"Reward: {next_timestep.reward}")
 
-    @nn.compact
-    def __call__(self, x):
-        x = nn.Dense(4)(x)
-        x = nn.relu(x)
-        x = nn.Dense(2)(x)
-        x = nn.relu(x)
-        x = nn.Dense(self.num_actions)(x)
-        return nn.softmax(x)
+        #if global_step % 10 == 0:
+        #    print(f"Current Training Step: {global_step}")
 
+        policy_loss, value_loss = agent.update(timestep, actions)
+        total_policy_loss += policy_loss
+        total_value_loss += value_loss
 
-class ValueNetwork(nn.Module):
-    """A simple value network."""
-    num_outputs: int = 1
+        # Update the observation
+        state = next_state
+        timestep = next_timestep
+        
+        ''' REMOVE THE COMMENT BELOW TO GET THE VISUALS OF THE GAME.'''
+        if last:
+            env.render(state)
+        total_steps = global_step
+        if timestep.step_type == StepType.LAST:
+            break;
+    print(f"Avg policy loss: {total_policy_loss / total_steps}")
+    print(f"Avg value loss: {total_value_loss / total_steps}")
 
-    @nn.compact
-    def __call__(self, x):
-        x = nn.Dense(8)(x)
-        # x = nn.relu(x)
-        # x = nn.Dense(8)(x)
-        x = nn.relu(x)
-        x = nn.Dense(self.num_outputs)(x)
-        return x
+# Maskes the action, since we use softmax in our network we can change the masked values to 0. (I think)
+def mask_actions(actions, mask):
+    return jnp.where(mask, actions, 0)
 
-class TrainState(train_state.TrainState):
-    pass
-
-
-class AlphaZero:
-    def __init__(self):
-        self.policy_network = PolicyNetwork(params['num_actions'])
-        self.value_network = ValueNetwork()
-        self.policy_optimizer = optax.adam(params['lr'])
-        self.value_optimizer = optax.adam(params['lr'])
-
-        self.policy_train_state = TrainState.create(
-            apply_fn=self.policy_network.apply,
-            params=self.policy_network.init(jax.random.PRNGKey(0), jnp.ones((1, 10, 10)))['params'],
-            tx=self.policy_optimizer,
-        )
-
-        self.value_train_state = TrainState.create(
-            apply_fn=self.value_network.apply,
-            params=self.value_network.init(jax.random.PRNGKey(0), jnp.ones((1, 10, 10)))['params'],
-            tx=self.value_optimizer,
-        )
-
-        # Set up the Flashbax buffer
-        self.buffer = fbx.make_flat_buffer(
-            max_length=params['buffer_max_length'],
-            min_length=params['buffer_min_length'],
-            sample_batch_size=params['sample_batch_size']
-        )
-        # Initialize the buffer's state
-        fake_initial_data = {"obs": jnp.zeros((10, 10)), "reward": jnp.array(0.0)}
-        self.buffer_state = self.buffer.init(fake_initial_data)
-
-    def train_step(self, rng_key):
-        if self.buffer.can_sample(self.buffer_state):
-            batch = self.buffer.sample(self.buffer_state, rng_key)
-            states = batch.experience.first['obs']
-            next_states = batch.experience.second['obs']
-            rewards = batch.experience.second['reward']
-
-            def policy_loss_fn(params):
-                logits = self.policy_network.apply({'params': params}, states)
-                # Your logic to compute advantages will go here
-                advantages = jnp.zeros(logits.shape[0])  # Placeholder
-                return ce_loss(logits, batch['actions'], advantages)
-
-            def value_loss_fn(params):
-                values = self.value_network.apply({'params': params}, states)
-                return mse_loss(values, rewards)
-
-            policy_grads = jax.grad(policy_loss_fn)(self.policy_train_state.params)
-            value_grads = jax.grad(value_loss_fn)(self.value_train_state.params)
-
-            self.policy_train_state = self.policy_train_state.apply_gradients(grads=policy_grads)
-            self.value_train_state = self.value_train_state.apply_gradients(grads=value_grads)
-
-    def run_episode(self, rng_key):
-        # You need to replace this with actual game logic that records observations, rewards, etc.
-        pass
-
-    def train(self):
-        rng_key = jax.random.PRNGKey(0)
-        for epoch in range(params['num_epochs']):
-            rng_key, subkey = jax.random.split(rng_key)
-            self.run_episode(subkey)
-            self.train_step(rng_key)
+if __name__ == '__main__':
+    env = jumanji.make(params['env'])
+    env = AutoResetWrapper(env)
+    params['num_actions'] = env.action_spec.num_values
+    agent = AlphaZero(params, env)
 
 
-
-
-
-
+    for epoch in range(params['num_epochs']):
+        print(f"Current epoch: {epoch}")
+        if epoch == params['num_epochs']-1:
+            train(params['num_steps'], agent, env, True)
+        else:
+            train(params['num_steps'], agent, env, False)
