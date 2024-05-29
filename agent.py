@@ -59,30 +59,27 @@ class AlphaZero:
         self.value_grad_fn = jax.value_and_grad(self.compute_value_loss)
 
 
-    def compute_policy_loss(self, params, states, actions, advantages):
+    # KL Loss between the mcts target & the policy network.
+    def compute_policy_loss(self, params, states, actions):
         logits = self.policy_apply_fn(params, states)
-        
-        # Compute the log probabilities
-        log_action_probs = jnp.log(logits)
-        
-        # Select the log probability of the chosen action
-        log_prob_chosen_action = jnp.argmax(log_action_probs, axis=-1)
-        
-        # Compute the policy loss (negative log prob weighted by advantage)
-        #print(advantages)
-        loss = -jnp.mean(log_prob_chosen_action * advantages)
+        epsilon = 1e-9
+        target = jnp.where(actions == 0, epsilon, actions)
+        logits = jnp.log(logits)
 
-        return loss
+        kl_loss = jnp.sum(target * (jnp.log(target) - logits))
+        kl_loss = jnp.mean(kl_loss)
 
+        return kl_loss
 
+    # MSE Loss between the value network and the returns
     def compute_value_loss(self, params, states, returns):
         values = self.value_apply_fn(params, states)
-        loss = jnp.mean((returns - values) ** 2) #MSE Loss
+        loss = jnp.mean((returns - values) ** 2) 
         return loss
 
 
-    def update_policy(self, states, actions, advantages):
-        loss, grads = self.policy_grad_fn(self.policy_train_state.params, states, actions, advantages)
+    def update_policy(self, states, actions):
+        loss, grads = self.policy_grad_fn(self.policy_train_state.params, states, actions)
         self.policy_train_state = self.policy_train_state.apply_gradients(grads=grads)
         return loss
 
@@ -103,14 +100,11 @@ class AlphaZero:
             
             # Calculate returns (May need to change)
             returns = rewards 
-            values = self.value_apply_fn(self.value_train_state.params, states)
+            #values = self.value_apply_fn(self.value_train_state.params, states)
             #print(f"Board states: {states.shape}")            
             value_loss = self.update_value(states, returns)
 
-            # Compute advantages (Not sure if we need to compute advantages, TODO: Look into Alphazero loss functions)
-            advantages = returns - values
-
-            policy_loss = self.update_policy(states, actions, advantages)
+            policy_loss = self.update_policy(states, actions)
             
             return policy_loss, value_loss
         
@@ -138,5 +132,5 @@ class AlphaZero:
             state = state.board
         value = self.value_apply_fn(self.value_train_state.params, state)
         value = jnp.ravel(value)[0]
-        print(f"Values shape: {value.shape}")
+        #print(f"Values shape: {value.shape}")
         return value
