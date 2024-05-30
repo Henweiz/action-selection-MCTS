@@ -33,20 +33,12 @@ def recurrent_fn(params: AlphaZero, rng_key, action, embedding):
     """One simulation step in MCTS."""
     del rng_key
     agent = params
-    env = params.env
-    # print(f"Embedding shape: {embedding.shape}")
-    # print(f"Action shape: {action.shape}")
+
     new_embedding, timestep = env_step(embedding, action)
-    # state = jax.vmap(lambda e: e.canonical_observation())(env)
-    # prior_logits, value = jax.vmap(lambda a, s: (a.policy_apply_fn(a.policy_train_state.params, s), a.value_apply_fn(a.value_train_state.params, s)), in_axes=(None, 0))(agent, embedding)
     prior_logits = agent.get_actions(new_embedding)
     value = agent.get_value(new_embedding)
     discount = timestep.discount
-    # terminated = timestep.step_type == jax.StepType.LAST
-    # assert value.shape == terminated.shape
-    # value = jnp.where(terminated, 0.0, value)
-    # assert discount.shape == terminated.shape
-    # discount = jnp.where(terminated, 0.0, discount)
+
     recurrent_fn_output = mctx.RecurrentFnOutput(
         reward=timestep.reward,
         discount=discount,
@@ -76,7 +68,6 @@ def train(timesteps, agent: AlphaZero, env, last):
         print(f"Step {global_step}")
         rng_key, subkey = jax.random.split(key)
 
-
         policy_output = mctx.gumbel_muzero_policy(
             params=agent,
             rng_key=subkey,
@@ -86,11 +77,9 @@ def train(timesteps, agent: AlphaZero, env, last):
             max_depth=4,
             max_num_considered_actions=params["num_actions"],
         )
-        print(policy_output)
 
         action = policy_output.action[0]
         action_weights = policy_output.action_weights
-        #print(policy_output)
 
         next_state, next_timestep = env_step(state, action)
         policy_loss, value_loss = agent.update(

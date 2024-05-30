@@ -83,7 +83,6 @@ class AlphaZero:
         self.policy_train_state = self.policy_train_state.apply_gradients(grads=grads)
         return loss
 
-
     def update_value(self, states, returns):
         loss, grads = self.value_grad_fn(self.value_train_state.params, states, returns)
         self.value_train_state = self.value_train_state.apply_gradients(grads=grads)
@@ -97,19 +96,24 @@ class AlphaZero:
             #print(batch)
             states = batch.first.observation.board
             rewards = batch.second.reward
-            
+
             # Calculate returns (May need to change)
-            returns = rewards 
+            returns = rewards
             #values = self.value_apply_fn(self.value_train_state.params, states)
-            #print(f"Board states: {states.shape}")            
+            #print(f"Board states: {states.shape}")
             value_loss = self.update_value(states, returns)
 
             policy_loss = self.update_policy(states, actions)
-            
+
             return policy_loss, value_loss
-        
+
         # Not sure if we need to return 0, 0. Guess that it does not matter...
         return 0, 0
+
+
+
+
+
         
     def get_actions(self, state):
         #print(state)
@@ -134,3 +138,17 @@ class AlphaZero:
         value = jnp.ravel(value)[0]
         #print(f"Values shape: {value.shape}")
         return value
+
+
+
+    # def select_action(self, state):
+    #
+    #     # TODO how to select
+    #     return jnp.argmax(self.get_actions(state))
+
+    def update_new(self, states, actions, rewards, next_states, dones):
+        # Similar to existing update but takes full batches and processes returns, etc.
+        returns = self.compute_returns(rewards, next_states, dones)  # Implement this
+        policy_loss = self.update_policy(states, actions)
+        value_loss = self.update_value(states, returns)
+        return policy_loss, value_loss
