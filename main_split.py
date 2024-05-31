@@ -14,12 +14,12 @@ params = {
     "env_name": "Game2048-v1",
     "seed": 42,
     "lr": 0.01,
-    "num_epochs": 10,
-    "num_steps": 300,
+    "num_epochs": 1,
+    "num_steps": 5,
     "num_actions": 4,
-    "buffer_max_length": 5000,  # Set a large buffer size
-    "buffer_min_length": 20,  # Set minimum transitions before sampling
-    "sample_batch_size": 10,  # Batch size for sampling from the buffer
+    "buffer_max_length": 5000,
+    "buffer_min_length": 1,
+    "num_batches": 2,
 }
 
 @jax.jit
@@ -45,67 +45,88 @@ def recurrent_fn(params: AlphaZero, rng_key, action, embedding):
     )
     return recurrent_fn_output, new_embedding
 
-def gather_data(env, agent, buffer_state, state, timestep, num_steps):
 
-    def select_action():
+def get_actions(agent, state, subkey):
 
-        def root_fn(state, _):
-            root = mctx.RootFnOutput(
-                prior_logits=agent.get_actions(state),
-                value=agent.get_value(state),
-                embedding=state,
-            )
-            return root
-
-        # TODO change
-        policy_output = mctx.gumbel_muzero_policy(
-            params=agent,
-            rng_key=subkey,
-            root=jax.vmap(root_fn, (None, 0))(state, jnp.ones(params["sample_batch_size"])),
-            recurrent_fn=jax.vmap(recurrent_fn, (None, None, 0, 0)),
-            num_simulations=8,
-            max_depth=4,
-            max_num_considered_actions=params["num_actions"],
+    def root_fn(state, _):
+        root = mctx.RootFnOutput(
+            prior_logits=agent.get_actions(state),
+            value=agent.get_value(state),
+            embedding=state,
         )
-        return policy_output.action[0]
+        return root
+
+    policy_output = mctx.gumbel_muzero_policy(
+        params=agent,
+        rng_key=subkey,
+        root=jax.vmap(root_fn, (None, 0))(state, jnp.ones(1 )), #params["num_steps"])),
+        recurrent_fn=jax.vmap(recurrent_fn, (None, None, 0, 0)),
+        num_simulations=8,
+        max_depth=4,
+        max_num_considered_actions=params["num_actions"],
+    )
+    return policy_output
 
 
-    for step in range(num_steps):
-        print(f'\rGathered Step {step} / {num_steps}', end='')  # Use \r to return to the start of the line
+def gather_data(env, agent, buffer_state, state, timestep, num_steps):
+    batches = []
+    for batch in range(params["num_batches"]):
 
-        action = select_action()
-        buffer_state = buffer.add(buffer_state, timestep)
+        states, action_list, rewards = [],[],[],
 
-        next_state, next_timestep = env.step(state, action)
+        for step in range(num_steps):
+            print(f'\rGathered Step {step} / {num_steps}', end='')
 
-        # buffer.add(state, action, timestep.reward, next_state, timestep.step_type == StepType.LAST)
-        state = next_state
-        timestep = next_timestep
+            actions = get_actions(agent, state, subkey)
+            best_action = actions.action[0]
+            action_weights = actions.action_weights[0]
 
-        if timestep.step_type == StepType.LAST:
-            state, timestep = env.reset()
+            buffer_state = buffer.add(buffer_state, timestep)
 
-def train_from_buffer(agent, buffer, num_batches, batch_size):
-    for _ in range(num_batches):
-        batch = buffer.sample(batch_size).experience
+            next_state, next_timestep = env.step(state, best_action)
 
-        states = batch.first.observation.board
-        rewards = batch.second.reward
+            states.append(state.board)
+            action_list.append(action_weights)
+            rewards.append(timestep.reward)
 
+            # buffer.add(state, action, timestep.reward, next_state, timestep.step_type == StepType.LAST)
+            state = next_state
+            timestep = next_timestep
+
+            if timestep.step_type == StepType.LAST:
+                state, timestep = env.reset()
+
+        batches.append({
+            "states": jnp.array(states),
+            "actions": jnp.array(action_list),
+            "rewards": jnp.array(rewards)
+        })
+
+    return batches
+
+def train(agent, buffer, batches):
+    for batch in batches:
+        # batch = buffer.sample(batch_size).experience
+        # states = batch.first.observation.board
+        # rewards = batch.second.reward
+        # returns = rewards
+
+        states = batch["states"]
+        actions = batch["actions"]
+        rewards = batch["rewards"]
         returns = rewards
 
         value_loss = agent.update_value(states, returns)
-
         policy_loss = agent.update_policy(states, actions)
 
-        return policy_loss, value_loss
-
+        print(f"Policy Loss: {policy_loss}, Value Loss: {value_loss}, Returns: {jnp.sum(returns)}")
 
 
 if __name__ == "__main__":
     env = jumanji.make(params["env_name"])
     env = AutoResetWrapper(env)
     params["num_actions"] = env.action_spec.num_values
+    print(f"Action Spec: {env.action_spec}")
     agent = AlphaZero(params, env)
 
     key = jax.random.PRNGKey(params["seed"])
@@ -116,12 +137,12 @@ if __name__ == "__main__":
     buffer = fbx.make_flat_buffer(
         max_length=params['buffer_max_length'],
         min_length=params['buffer_min_length'],
-        sample_batch_size=params['sample_batch_size']
+        sample_batch_size=params['num_batches']
     )
     buffer_state = buffer.init(timestep)
 
     # Data Gathering Phase
-    gather_data(env, agent, buffer_state, state, timestep, params["num_steps"])
+    batches = gather_data(env, agent, buffer_state, state, timestep, params["num_steps"])
 
     # Check if buffer has enough samples to start learning
     if buffer.can_sample:
@@ -129,7 +150,20 @@ if __name__ == "__main__":
         # Learning Phase
         for epoch in range(params["num_epochs"]):
             print(f"Training Epoch: {epoch + 1}")
-            train_from_buffer(agent, buffer, params["num_batches"], params["batch_size"])
+            train(agent, buffer, batches)
     else:
         print("Not enough data to start training.")
+
+    rewards = []
+    for i in range(params['num_steps']):
+        print(f"Step {i}")
+        actions = get_actions(agent, state, subkey)
+        best_action = actions.action[0]
+        state, timestep = env_step(state, best_action)
+        rewards.append(timestep.reward)
+        env.render(state)
+
+    print(f"Total Reward: {sum(rewards)}")
+
+
 

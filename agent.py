@@ -48,7 +48,7 @@ class AlphaZero:
         self.buffer = fbx.make_flat_buffer(
             max_length=params['buffer_max_length'],
             min_length=params['buffer_min_length'],
-            sample_batch_size=params['sample_batch_size']
+            sample_batch_size=params['num_steps']
         )
         # Initialize the buffer's state
         self.buffer_state = self.buffer.init(self.timestep)
