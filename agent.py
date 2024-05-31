@@ -20,15 +20,13 @@ class AlphaZero:
         _, self.timestep = jax.jit(env.reset)(self.key)
         self._observation_spec = env.observation_spec
         self._action_spec = env.action_spec
-        #print(self._action_spec.num_values)
-        # Neural net and optimiser.
+
         self.policy_network = PolicyNetwork(num_actions=self._action_spec.num_values)
         self.value_network = ValueNetwork()
         self.policy_optimizer = optax.adam(params['lr'])
         self.value_optimizer = optax.adam(params['lr'])
 
         input_shape = self._observation_spec.board.shape
-        #print(input_shape)
 
         key1, key2 = jax.random.split(self.key)
         
@@ -43,15 +41,6 @@ class AlphaZero:
             params=self.value_network.init(key2, jnp.ones((1, *input_shape))),
             tx=self.value_optimizer
         )
-
-        # Set up the Flashbax buffer
-        self.buffer = fbx.make_flat_buffer(
-            max_length=params['buffer_max_length'],
-            min_length=params['buffer_min_length'],
-            sample_batch_size=params['num_steps']
-        )
-        # Initialize the buffer's state
-        self.buffer_state = self.buffer.init(self.timestep)
 
         self.policy_apply_fn = jax.jit(self.policy_train_state.apply_fn)
         self.value_apply_fn = jax.jit(self.value_train_state.apply_fn)
@@ -88,67 +77,24 @@ class AlphaZero:
         self.value_train_state = self.value_train_state.apply_gradients(grads=grads)
         return loss
 
-    def update(self, timestep, actions):
-        self.buffer_state = self.buffer.add(self.buffer_state, timestep)
 
-        if self.buffer.can_sample(self.buffer_state):
-            batch = self.buffer.sample(self.buffer_state, self.key).experience
-            #print(batch)
-            states = batch.first.observation.board
-            rewards = batch.second.reward
-
-            # Calculate returns (May need to change)
-            returns = rewards
-            #values = self.value_apply_fn(self.value_train_state.params, states)
-            #print(f"Board states: {states.shape}")
-            value_loss = self.update_value(states, returns)
-
-            policy_loss = self.update_policy(states, actions)
-
-            return policy_loss, value_loss
-
-        # Not sure if we need to return 0, 0. Guess that it does not matter...
-        return 0, 0
-
-
-
-
-
-        
     def get_actions(self, state):
-        #print(state)
-        #todo: there's an issue with batches, first if fixes the input when we get a batchless state
         if len(state.board.shape) == 2:
             state = state.board[None, ...]
         else:
             state = state.board
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
         actions = jnp.ravel(actions)
-        # print(f"Actions shape: {actions.shape}")
         return actions
         
     def get_value(self, state):
-        #print(state)
-        #todo: there's an issue with batches, first if fixes the input when we get a batchless state
+
         if len(state.board.shape) == 2:
             state = state.board[None, ...]
         else:
             state = state.board
         value = self.value_apply_fn(self.value_train_state.params, state)
         value = jnp.ravel(value)[0]
-        #print(f"Values shape: {value.shape}")
+
         return value
 
-
-
-    # def select_action(self, state):
-    #
-    #     # TODO how to select
-    #     return jnp.argmax(self.get_actions(state))
-
-    def update_new(self, states, actions, rewards, next_states, dones):
-        # Similar to existing update but takes full batches and processes returns, etc.
-        returns = self.compute_returns(rewards, next_states, dones)  # Implement this
-        policy_loss = self.update_policy(states, actions)
-        value_loss = self.update_value(states, returns)
-        return policy_loss, value_loss

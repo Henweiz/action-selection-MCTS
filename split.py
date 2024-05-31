@@ -68,6 +68,7 @@ def get_actions(agent, state, subkey):
     return policy_output
 
 
+
 def gather_data(env, agent, buffer_state, state, timestep, num_steps):
     batches = []
     for batch in range(params["num_batches"]):
@@ -106,10 +107,6 @@ def gather_data(env, agent, buffer_state, state, timestep, num_steps):
 
 def train(agent, buffer, batches):
     for batch in batches:
-        # batch = buffer.sample(batch_size).experience
-        # states = batch.first.observation.board
-        # rewards = batch.second.reward
-        # returns = rewards
 
         states = batch["states"]
         actions = batch["actions"]
