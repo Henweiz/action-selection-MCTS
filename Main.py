@@ -9,18 +9,21 @@ import jumanji
 from jumanji.wrappers import AutoResetWrapper
 from jumanji.types import StepType
 import mctx
-import functools
+import functools 
+from functools import partial
 
 params = {
     "env_name": "Game2048-v1",
     "seed": 42,
     "lr": 0.01,
-    "num_epochs": 3,
-    "num_steps": 2000,
+    "num_epochs": 10,
+    "num_steps": 300,
     "num_actions": 4,
     "buffer_max_length": 5000,
     "buffer_min_length": 1,
-    "num_batches": 2,
+    "num_batches": 4,
+    "num_simulations": 8,
+    "max_tree_depth": 8
 }
 
 
@@ -38,46 +41,51 @@ def recurrent_fn(params: AlphaZero, rng_key, action, embedding):
     new_embedding, timestep = env_step(embedding, action)
     prior_logits = agent.get_actions(new_embedding)
     value = agent.get_value(new_embedding)
-    discount = timestep.discount
 
     recurrent_fn_output = mctx.RecurrentFnOutput(
         reward=timestep.reward,
-        discount=discount,
+        discount=timestep.discount,
         prior_logits=prior_logits,
         value=value,
     )
     return recurrent_fn_output, new_embedding
 
+def root_fn(state, _):
+    root = mctx.RootFnOutput(
+        prior_logits=agent.get_actions(state),
+        value=agent.get_value(state),
+        embedding=state,
+    )
+    return root
 
 def get_actions(agent, state, subkey):
-    def root_fn(state, _):
-        root = mctx.RootFnOutput(
-            prior_logits=agent.get_actions(state),
-            value=agent.get_value(state),
-            embedding=state,
-        )
-        return root
-
     policy_output = mctx.gumbel_muzero_policy(
         params=agent,
         rng_key=subkey,
         root=jax.vmap(root_fn, (None, 0))(state, jnp.ones(1)),  # params["num_steps"])),
         recurrent_fn=jax.vmap(recurrent_fn, (None, None, 0, 0)),
-        num_simulations=8,
-        max_depth=4,
+        num_simulations=params["num_simulations"],
+        max_depth=params["max_tree_depth"],
         max_num_considered_actions=params["num_actions"],
+        qtransform=partial(
+            mctx.qtransform_completed_by_mix_value,
+            value_scale=0.1,
+            maxvisit_init=50,
+            rescale_values=False,
+        ),
+        gumbel_scale=1.0,
     )
     return policy_output
 
 
-@jax.jit
+#@jax.jit
 def step_fn(agent, state, subkey):
     actions = get_actions(agent, state, subkey)
     best_action = actions.action[0]
     state, timestep = env_step(state, best_action)
     return state, (timestep, actions.action_weights[0])
 
-@jax.jit
+#@jax.jit
 def run_n_steps(state, subkey, agent, n):
     random_keys = jax.random.split(subkey, n)
     partial_step_fn = functools.partial(step_fn, agent)

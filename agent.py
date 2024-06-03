@@ -50,20 +50,26 @@ class AlphaZero:
 
     # KL Loss between the mcts target & the policy network.
     def compute_policy_loss(self, params, states, actions):
-        logits = self.policy_apply_fn(params, states)
+        # Get the probabilities from the policy network
+        probs = self.policy_apply_fn(params, states)
+        
+        # Add epsilon to avoid log(0)
         epsilon = 1e-9
-        target = jnp.where(actions == 0, epsilon, actions)
-        logits = jnp.log(logits)
-
-        kl_loss = jnp.sum(target * (jnp.log(target) - logits))
+        assert probs.shape[-1] == 4
+        assert actions.shape[-1] == 4
+        
+        # Compute the KL divergence
+        kl_loss = jnp.sum(actions * (jnp.log(actions + epsilon) - jnp.log(probs + epsilon)), axis=-1)
+        
+        # Compute the mean loss over all examples
         kl_loss = jnp.mean(kl_loss)
-
         return kl_loss
 
     # MSE Loss between the value network and the returns
     def compute_value_loss(self, params, states, returns):
         values = self.value_apply_fn(params, states)
-        loss = jnp.mean((returns - values) ** 2) 
+        epsilon = 1e-9
+        loss = jnp.mean((jnp.log(returns + epsilon) - jnp.log(jnp.abs(values) + epsilon)) ** 2) 
         return loss
 
 
