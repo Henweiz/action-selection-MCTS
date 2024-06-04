@@ -1,17 +1,10 @@
-import collections
-import random
-from absl import app
-from absl import flags
 import jax
 import jax.numpy as jnp
-import numpy as np
 import optax
-import rlax
-import flashbax as fbx
 from network import PolicyNetwork, ValueNetwork
 from flax.training import train_state
 
-class AlphaZero: 
+class Agent: 
     def __init__(self, params, env):
         self.key = jax.random.PRNGKey(params['seed'])
         self.env = env
@@ -21,12 +14,12 @@ class AlphaZero:
         self._observation_spec = env.observation_spec
         self._action_spec = env.action_spec
 
-        self.policy_network = PolicyNetwork(num_actions=self._action_spec.num_values)
-        self.value_network = ValueNetwork()
+        self.policy_network = params.get("policy_network", PolicyNetwork)(num_actions=self._action_spec.num_values)
+        self.value_network = params.get("value_network", ValueNetwork)()
         self.policy_optimizer = optax.adam(params['lr'])
         self.value_optimizer = optax.adam(params['lr'])
 
-        input_shape = self._observation_spec.board.shape
+        input_shape = self.input_shape(self._observation_spec)
 
         key1, key2 = jax.random.split(self.key)
         
@@ -46,7 +39,12 @@ class AlphaZero:
         self.value_apply_fn = jax.jit(self.value_train_state.apply_fn)
         self.policy_grad_fn = jax.value_and_grad(self.compute_policy_loss)
         self.value_grad_fn = jax.value_and_grad(self.compute_value_loss)
+    
+    def input_shape(self, observation_spec):
+        raise NotImplementedError()
 
+    def get_state_from_observation(self, observation, batched):
+        raise NotImplementedError()
 
     # KL Loss between the mcts target & the policy network.
     def compute_policy_loss(self, params, states, actions):
@@ -77,22 +75,15 @@ class AlphaZero:
         self.value_train_state = self.value_train_state.apply_gradients(grads=grads)
         return loss
 
-
     def get_actions(self, state):
-        if len(state.board.shape) == 2:
-            state = state.board[None, ...]
-        else:
-            state = state.board
+        state = self.get_state_from_observation(state, True)
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
         actions = jnp.ravel(actions)
         return actions
         
     def get_value(self, state):
+        state = self.get_state_from_observation(state, True)
 
-        if len(state.board.shape) == 2:
-            state = state.board[None, ...]
-        else:
-            state = state.board
         value = self.value_apply_fn(self.value_train_state.params, state)
         value = jnp.ravel(value)[0]
 
