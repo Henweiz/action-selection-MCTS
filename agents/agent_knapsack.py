@@ -1,6 +1,6 @@
 import jax.numpy as jnp
-from knapsack_networks import KnapsackPolicyNetwork, KnapsackValueNetwork
-from agent import Agent
+from networks.knapsack_networks import KnapsackPolicyNetwork, KnapsackValueNetwork
+from agents.agent import Agent
 
 class AgentKnapsack(Agent):
     def __init__(self, params, env):

@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
-from agent import Agent
-from agent_2048 import Agent2048
-from agent_knapsack import AgentKnapsack
+from agents.agent import Agent
+from agents.agent_2048 import Agent2048
+from agents.agent_knapsack import AgentKnapsack
 import jumanji
 from jumanji.wrappers import AutoResetWrapper
 from jumanji.types import StepType

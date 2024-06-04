@@ -1,5 +1,5 @@
-from network import PolicyNetwork, ValueNetwork
-from agent import Agent
+from networks.network import PolicyNetwork, ValueNetwork
+from agents.agent import Agent
 
 class Agent2048(Agent): 
     def __init__(self, params, env):
