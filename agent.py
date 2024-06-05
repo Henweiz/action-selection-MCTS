@@ -68,8 +68,7 @@ class AlphaZero:
     # MSE Loss between the value network and the returns
     def compute_value_loss(self, params, states, returns):
         values = self.value_apply_fn(params, states)
-        epsilon = 1e-9
-        loss = jnp.mean((jnp.log(returns + epsilon) - jnp.log(jnp.abs(values) + epsilon)) ** 2) 
+        loss = jnp.mean((returns - values) ** 2) 
         return loss
 
 
@@ -85,12 +84,14 @@ class AlphaZero:
 
 
     def get_actions(self, state):
+        mask = state.action_mask
         if len(state.board.shape) == 2:
             state = state.board[None, ...]
         else:
             state = state.board
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
         actions = jnp.ravel(actions)
+        actions = self.mask_actions(actions, mask)
         return actions
         
     def get_value(self, state):
@@ -103,4 +104,7 @@ class AlphaZero:
         value = jnp.ravel(value)[0]
 
         return value
+    
+    def mask_actions(self, actions, mask):
+        return jnp.where(mask, actions, 0)
 
