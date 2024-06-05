@@ -49,14 +49,19 @@ class Agent:
 
     # KL Loss between the mcts target & the policy network.
     def compute_policy_loss(self, params, states, actions):
-        logits = self.policy_apply_fn(params, states)
+        # Get the probabilities from the policy network
+        probs = self.policy_apply_fn(params, states)
+        
+        # Add epsilon to avoid log(0)
         epsilon = 1e-9
-        target = jnp.where(actions == 0, epsilon, actions)
-        logits = jnp.log(logits)
-
-        kl_loss = jnp.sum(target * (jnp.log(target) - logits))
+        assert probs.shape[-1] == 4
+        assert actions.shape[-1] == 4
+        
+        # Compute the KL divergence
+        kl_loss = jnp.sum(actions * (jnp.log(actions + epsilon) - jnp.log(probs + epsilon)), axis=-1)
+        
+        # Compute the mean loss over all examples
         kl_loss = jnp.mean(kl_loss)
-
         return kl_loss
 
     # MSE Loss between the value network and the returns
@@ -77,9 +82,11 @@ class Agent:
         return loss
 
     def get_actions(self, state):
+        mask = state.action_mask
         state = self.get_state_from_observation(state, True)
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
         actions = jnp.ravel(actions)
+        actions = self.mask_actions(actions, mask)
         return actions
         
     def get_value(self, state):
@@ -89,4 +96,7 @@ class Agent:
         value = jnp.ravel(value)[0]
 
         return value
+    
+    def mask_actions(self, actions, mask):
+        return jnp.where(mask, actions, 0)
 

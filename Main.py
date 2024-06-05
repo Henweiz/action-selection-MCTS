@@ -8,7 +8,8 @@ import jumanji
 from jumanji.wrappers import AutoResetWrapper
 from jumanji.types import StepType
 import mctx
-import functools
+import functools 
+from functools import partial
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1
 params = {
@@ -18,10 +19,12 @@ params = {
     "lr": 0.01,
     "num_epochs": 10,
     "num_steps": 4000,
-    "num_actions": 50,
+    "num_actions": 4,
     "buffer_max_length": 5000,
     "buffer_min_length": 1,
-    "num_batches": 2,
+    "num_batches": 4,
+    "num_simulations": 16,
+    "max_tree_depth": 8
 }
 
 
@@ -40,11 +43,10 @@ def recurrent_fn(params: Agent, rng_key, action, embedding):
     new_state, new_timestep = env_step(state, action)
     prior_logits = agent.get_actions(new_timestep.observation)
     value = agent.get_value(new_timestep.observation)
-    discount = timestep.discount
 
     recurrent_fn_output = mctx.RecurrentFnOutput(
         reward=timestep.reward,
-        discount=discount,
+        discount=timestep.discount,
         prior_logits=prior_logits,
         value=value,
     )
@@ -59,15 +61,22 @@ def get_actions(agent, state, timestep, subkey):
             embedding=(state, timestep),
         )
         return root
-
+    
     policy_output = mctx.gumbel_muzero_policy(
         params=agent,
         rng_key=subkey,
         root=jax.vmap(root_fn, (None, None, 0))(state, timestep, jnp.ones(1)),  # params["num_steps"])),
         recurrent_fn=jax.vmap(recurrent_fn, (None, None, 0, 0)),
-        num_simulations=16,
-        max_depth=8,
+        num_simulations=params["num_simulations"],
+        max_depth=params["max_tree_depth"],
         max_num_considered_actions=params["num_actions"],
+        qtransform=partial(
+            mctx.qtransform_completed_by_mix_value,
+            value_scale=0.1,
+            maxvisit_init=50,
+            rescale_values=False,
+        ),
+        gumbel_scale=1.0,
     )
     return policy_output
 
