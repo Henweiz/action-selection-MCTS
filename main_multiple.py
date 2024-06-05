@@ -4,7 +4,7 @@ import flashbax as fbx
 from flax.training import train_state
 from flax import linen as nn
 import optax
-from agent import AlphaZero
+from agents.agent_2048 import Agent2048
 import jumanji
 from jumanji.wrappers import AutoResetWrapper
 from jumanji.types import StepType
@@ -13,6 +13,7 @@ import functools
 
 params = {
     "env_name": "Game2048-v1",
+    "agent": Agent2048,
     "seed": 42,
     "lr": 0.01,
     "num_epochs": 3,
