@@ -2,24 +2,26 @@ import jax
 import jax.numpy as jnp
 from agents.agent import Agent
 from agents.agent_2048 import Agent2048
-from agents.agent_knapsack import AgentKnapsack
+from agents.agent_knapsack import AgentKnapsack 
+from agents.agent_grid import AgentGrid
 import jumanji
 from jumanji.wrappers import AutoResetWrapper
 from jumanji.types import StepType
 import mctx
 import functools
 
+# Environments: Snake-v1, Knapsack-v1, Game2048-v1
 params = {
-    "env_name": "Knapsack-v1",
-    "agent": AgentKnapsack,
+    "env_name": "Snake-v1",
+    "agent": AgentGrid,
     "seed": 42,
     "lr": 0.01,
-    "num_epochs": 5,
-    "num_steps": 50,
+    "num_epochs": 10,
+    "num_steps": 4000,
     "num_actions": 50,
     "buffer_max_length": 5000,
     "buffer_min_length": 1,
-    "num_batches": 5,
+    "num_batches": 2,
 }
 
 
@@ -63,8 +65,8 @@ def get_actions(agent, state, timestep, subkey):
         rng_key=subkey,
         root=jax.vmap(root_fn, (None, None, 0))(state, timestep, jnp.ones(1)),  # params["num_steps"])),
         recurrent_fn=jax.vmap(recurrent_fn, (None, None, 0, 0)),
-        num_simulations=50,
-        max_depth=10,
+        num_simulations=16,
+        max_depth=8,
         max_num_considered_actions=params["num_actions"],
     )
     return policy_output
@@ -72,6 +74,7 @@ def get_actions(agent, state, timestep, subkey):
 
 def step_fn(agent, state_timestep, subkey):
     state, timestep = state_timestep
+    #print(timestep.observation.grid)
     actions = get_actions(agent, state, timestep, subkey)
     assert actions.action.shape[0] == 1
     assert actions.action_weights.shape[0] == 1
@@ -105,7 +108,7 @@ def train(agent: Agent, timestep, action_weights):
         value_loss = agent.update_value(states, returns)
         policy_loss = agent.update_policy(states, actions)
 
-        print(f"Policy Loss: {policy_loss}, Value Loss: {value_loss}, Returns: {jnp.sum(returns)}, Max returns: {jnp.max(returns)}")
+        print(f"Policy Loss: {policy_loss}, Value Loss: {value_loss}, Returns: {jnp.sum(returns)}")
 
 if __name__ == "__main__":
     env = jumanji.make(params["env_name"])
@@ -118,3 +121,10 @@ if __name__ == "__main__":
         print(f"Training Epoch: {epoch + 1}")
         timestep, actions = gather_data_new()
         train(agent, timestep, actions)
+    key = jax.random.PRNGKey(params["seed"])
+    state, timestep = env.reset(key)
+    for step in range(params["num_steps"]):
+        env.render(state)
+        (new_state, new_timestep), (cum_timestep, actions) = step_fn(agent, (state, timestep), key)
+        state = new_state
+        timestep = new_timestep

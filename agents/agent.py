@@ -20,6 +20,7 @@ class Agent:
         self.value_optimizer = optax.adam(params['lr'])
 
         input_shape = self.input_shape(self._observation_spec)
+        #print(input_shape)
 
         key1, key2 = jax.random.split(self.key)
         
