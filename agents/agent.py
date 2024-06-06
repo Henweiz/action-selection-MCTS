@@ -51,18 +51,18 @@ class Agent:
     def compute_policy_loss(self, params, states, actions):
         # Get the probabilities from the policy network
         probs = self.policy_apply_fn(params, states)
+        probs = jax.nn.softmax(probs)
+        #print(actions)
+        #print(probs)
         
         # Add epsilon to avoid log(0)
         epsilon = 1e-9
-        assert probs.shape[-1] == 4
-        assert actions.shape[-1] == 4
         
         # Compute the KL divergence
-        kl_loss = jnp.sum(actions * (jnp.log(actions + epsilon) - jnp.log(probs + epsilon)), axis=-1)
+        kl_divergence = jnp.sum(actions * jnp.log((actions + epsilon) / (probs + epsilon)), axis=-1)
+        mean_loss = jnp.mean(kl_divergence)
         
-        # Compute the mean loss over all examples
-        kl_loss = jnp.mean(kl_loss)
-        return kl_loss
+        return mean_loss
 
     # MSE Loss between the value network and the returns
     def compute_value_loss(self, params, states, returns):
@@ -87,13 +87,15 @@ class Agent:
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
         actions = jnp.ravel(actions)
         actions = self.mask_actions(actions, mask)
-        return actions
+        action_probabilities = jax.nn.softmax(actions)
+        return action_probabilities
         
     def get_value(self, state):
         state = self.get_state_from_observation(state, True)
 
         value = self.value_apply_fn(self.value_train_state.params, state)
         value = jnp.ravel(value)[0]
+        
 
         return value
     
