@@ -18,6 +18,7 @@ def custom_action_selection(
     pb_c_init: float = 1.25,
     pb_c_base: float = 19652.0,
     qtransform = mctx.qtransform_by_parent_and_siblings,
+    selector = VariationalKullbackLeibler()
 ) -> chex.Array:
   """Returns the action selected for a node index.
 
@@ -35,7 +36,6 @@ def custom_action_selection(
   Returns:
     action: the action selected from the given node.
   """
-  selector = VariationalKullbackLeibler()
   prior_logits = tree.children_prior_logits[node_index]
   prior_probs = jax.nn.softmax(prior_logits)
   value_score = qtransform(tree, node_index)

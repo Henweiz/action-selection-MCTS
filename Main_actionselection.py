@@ -10,6 +10,8 @@ from jumanji.types import StepType
 import mctx
 import functools 
 from functools import partial
+from action_selection_rules.solve_norm import ExPropKullbackLeibler, SquaredHellinger
+from action_selection_rules.solve_trust_region import VariationalKullbackLeibler
 from tree_policies import muzero_custom_policy
 
 from plotting import plot_rewards, plot_losses
@@ -18,16 +20,25 @@ from plotting import plot_rewards, plot_losses
 params = {
     "env_name": "Snake-v1",
     "agent": AgentGrid,
+    "policy": "KL_variational",
     "seed": 42,
     "lr": 0.001,
-    "num_episodes": 20,
-    "num_steps": 20,
+    "num_episodes": 100,
+    "num_steps": 2000,
     "num_actions": 4,
     "buffer_max_length": 5000,
     "buffer_min_length": 1,
-    "num_batches": 2,
-    "num_simulations": 3,
-    "max_tree_depth": 4
+    "num_batches": 5,
+    "num_simulations": 32,
+    "max_tree_depth": 8,
+    "num_channels": 32
+}
+
+policy_dict = {
+    "default": mctx.muzero_policy,
+    "KL_variational": functools.partial(muzero_custom_policy, selector=VariationalKullbackLeibler()),
+    "KL_ex_prop": functools.partial(muzero_custom_policy, selector=ExPropKullbackLeibler()),
+    "squared_hellinger": functools.partial(muzero_custom_policy, selector=SquaredHellinger()),
 }
 
 class Timestep:
@@ -80,8 +91,9 @@ def get_actions(agent, state, timestep, subkey):
             embedding=(state, timestep),
         )
         return root
+    policy = policy_dict[params["policy"]]
     
-    policy_output = muzero_custom_policy(
+    policy_output = policy(
         params=agent,
         rng_key=subkey,
         root=jax.vmap(root_fn, (None, None, 0))(state, timestep, jnp.ones(1)),  # params["num_steps"])),

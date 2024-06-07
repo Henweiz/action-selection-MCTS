@@ -10,6 +10,7 @@ from action_selection_rules import action_selection
 
 def muzero_custom_policy(
     params,
+    selector,
     rng_key: chex.PRNGKey,
     root: mctx.RootFnOutput,
     recurrent_fn: mctx.RecurrentFn,
@@ -73,6 +74,7 @@ def muzero_custom_policy(
   # Running the search.
   interior_action_selection_fn = functools.partial(
       action_selection.custom_action_selection,
+      selector=selector,
     #   pb_c_base=pb_c_base,
     #   pb_c_init=pb_c_init,
       qtransform=qtransform)
