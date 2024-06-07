@@ -11,7 +11,8 @@ from jumanji.types import StepType
 import mctx
 import functools 
 from functools import partial
-import matplotlib.pyplot as plt
+
+from plotting import plot_rewards, plot_losses
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
@@ -19,16 +20,15 @@ params = {
     "agent": AgentMaze,
     "num_channels": 32, 
     "seed": 42,
-    "lr": 0.01,
-    "discount": 0.99,
-    "num_episodes": 200,
-    "num_steps": 100,
+    "lr": 0.001,
+    "num_episodes": 3,
+    "num_steps": 10,
     "num_actions": 4,
     "buffer_max_length": 5000,
     "buffer_min_length": 1,
-    "num_batches": 1,
-    "num_simulations": 32,
-    "max_tree_depth": 8
+    "num_batches": 2,
+    "num_simulations": 3,
+    "max_tree_depth": 4
 }
 
 class Timestep:
@@ -55,8 +55,11 @@ def recurrent_fn(agent: Agent, rng_key, action, embedding):
     (state, timestep) = embedding
     new_state, new_timestep = env_step(state, action)
     prior_logits = agent.get_actions(new_timestep.observation)
+
+    # TODO - transform back the value here
     value = agent.get_value(new_timestep.observation)
-    
+
+
 
     recurrent_fn_output = mctx.RecurrentFnOutput(
         reward=timestep.reward,
@@ -69,6 +72,8 @@ def recurrent_fn(agent: Agent, rng_key, action, embedding):
 
 def get_actions(agent, state, timestep, subkey):
     def root_fn(state, timestep, _):
+
+        # TODO do transform with the value here?
         root = mctx.RootFnOutput(
             prior_logits=agent.get_actions(timestep.observation),
             value=agent.get_value(timestep.observation),
@@ -131,31 +136,38 @@ def gather_data_new(key):
     return timestep, actions, q_values
 
 def train(agent: Agent, timestep, action_weights, q_values):
-    avg_return = []
+    # total_reward_array, value_loss_array, policy_loss_array, max_reward_array = [], [], [], []
+    results_array = []
+
     for batch_num, actions in enumerate(action_weights):
         states = agent.get_state_from_observation(timestep.observation, True)[batch_num]
         
         rewards = timestep.reward[batch_num]
-        #steptypes = timestep.step_type[batch_num]
-        #timesteps = Timestep(step_type=steptypes, reward=rewards)
-        #rewards = ep_loss_reward(timesteps)
+        # TODO - transform the value here
 
-        value_loss = agent.update_value(states, q_values[batch_num])
-        policy_loss = agent.update_policy(states, actions)
-        returns = jnp.sum(rewards)
-        #print(f"Policy Loss: {policy_loss}, Value Loss: {value_loss}, Returns: {returns}")
-        avg_return.append(returns)
-    #avg_return_array = jnp.array(avg_return)   
-    #avg_return_array =  jnp.mean(avg_return_array)
-    #print(f"Avg return: {avg_return_array}")
-    return avg_return
+        steptypes = timestep.step_type[batch_num]
+        timesteps = Timestep(step_type=steptypes, reward=rewards)
+        rewards = ep_loss_reward(timesteps)
 
-#@jax.jit
-def process_episode(key):
-    timestep, actions, q_values = gather_data_new(key)
-    #print(q_values)
+        results_array.append([
+            jnp.sum(rewards).item(),
+            jnp.max(rewards),
+            agent.update_value(states, q_values[batch_num]),
+            agent.update_policy(states, actions)
+        ])
+
+    avg_results_array = jnp.mean(jnp.array(results_array), axis=0)
+    print(f"Total Return: {avg_results_array[0]} | Max Return: {avg_results_array[1]} | Value Loss: {round(avg_results_array[2], 6)} | Average Policy Loss: {round(avg_results_array[3], 6)}")
+
+    return avg_results_array
+
+@jax.jit
+def process_episode(episode):
+    print(f"Training Episode: {episode + 1}")
+    timestep, actions, q_values = gather_data_new()
     avg_return = train(agent, timestep, actions, q_values)
     return avg_return
+
 
 if __name__ == "__main__":
     env = jumanji.make(params["env_name"])
@@ -164,32 +176,19 @@ if __name__ == "__main__":
     key = jax.random.PRNGKey(params["seed"])
     params["num_actions"] = env.action_spec.num_values
     agent = params.get("agent", Agent)(params, env)
-    avg_return = []
-    keys = jax.random.split(key, params["num_episodes"])
 
-
+    all_results_array = []
     for episode in range(params["num_episodes"]):
-        print(f"Training episode: {episode + 1}")
-        avg_returns = process_episode(keys[episode])
-        avg_returns = jnp.array(avg_returns)   
-        avg_returns = jnp.mean(avg_returns)
-        print(avg_returns)
-        avg_return.append(avg_returns)
+        print(f"Training Episode: {episode + 1}")
+        timestep, actions, q_values = gather_data_new()
+        results_array = train(agent, timestep, actions, q_values)
+        all_results_array.append(results_array)
 
-    avg_return = jnp.array(avg_return)   
-    print(avg_return)
-    # Create a range of episodes
-    episodes = jnp.arange(len(avg_return))
+    plot_rewards(all_results_array)
+    plot_losses(all_results_array)
 
-    # Plot
-    plt.figure(figsize=(10, 6))
-    plt.plot(episodes, avg_return, marker='o', linestyle='-')
-    plt.title('Returns per Episode')
-    plt.xlabel('Episode')
-    plt.ylabel('Return')
-    plt.grid(True)
-    plt.show()
 
+    key = jax.random.PRNGKey(params["seed"])
     state, timestep = env.reset(key)
     for step in range(params["num_steps"]):
         env.render(state)
