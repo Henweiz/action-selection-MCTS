@@ -6,7 +6,7 @@ import optax
 from networks.network import PolicyNetwork, ValueNetwork
 from flax.training import train_state
 
-class AgentGrid(Agent): 
+class AgentMaze(Agent): 
     def __init__(self, params, env):
         params["policy_network"] = CNNPolicyNetwork
         params["value_network"] = CNNValueNetwork
@@ -14,9 +14,9 @@ class AgentGrid(Agent):
 
         self.key = jax.random.PRNGKey(params['seed'])
         self.env = env        
-        _, self.timestep = jax.jit(env.reset)(self.key)
+        state, self.timestep = jax.jit(env.reset)(self.key)
         #print(self.timestep.discount)
-        self._observation_spec = env.observation_spec
+        self._observation_spec = state
         self._action_spec = env.action_spec
 
         self.policy_network = params.get("policy_network")(num_actions=self._action_spec.num_values, num_channels=params['num_channels'])
@@ -24,8 +24,8 @@ class AgentGrid(Agent):
         self.policy_optimizer = optax.adam(params['lr'])
         self.value_optimizer = optax.adam(params['lr'])
 
-        input_shape = self.input_shape(self._observation_spec)
-        #print(input_shape)
+        input_shape = self.input_shape(self._observation_spec).shape
+        print(input_shape)
 
         key1, key2 = jax.random.split(self.key)
         
@@ -48,10 +48,19 @@ class AgentGrid(Agent):
 
 
     def input_shape(self, observation_spec):
-        return observation_spec.grid.shape
+        return self.process_observation(observation_spec)
 
     def get_state_from_observation(self, observation, batched=True):
-        state = observation.grid
+        state = self.process_observation(observation)
         if batched and len(state.shape) == 3:
             state = state[None, ...]
         return state
+    
+    def process_observation(self, observation):
+        """Add the agent and the target to the walls array."""
+        agent = 2
+        target = 3
+        obs = observation.walls.astype(float)
+        obs = obs.at[tuple(observation.agent_position)].set(agent)
+        obs = obs.at[tuple(observation.target_position)].set(target)
+        return jnp.expand_dims(obs, axis=-1)  # Adding a channels axis.
