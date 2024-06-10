@@ -22,13 +22,13 @@ params = {
     "num_channels": 32, 
     "seed": 42,
     "lr": 0.001,
-    "num_episodes": 100,
-    "num_steps": 500,
+    "num_episodes": 50,
+    "num_steps": 200,
     "num_actions": 4,
-    "buffer_max_length": 5000,
-    "buffer_min_length": 1,
-    "num_batches": 4,
-    "num_simulations": 2,
+    "buffer_max_length": 50000,
+    "buffer_min_length": 4,
+    "num_batches": 32,
+    "num_simulations": 16,
     "max_tree_depth": 4,
     "discount": 0.99,
 }
@@ -165,7 +165,7 @@ def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_ar
 
     avg_results_array = jnp.mean(jnp.array(results_array), axis=0)
     print(
-        f"Total Return: {avg_results_array[0]} | Max Return: {avg_results_array[1]} | Value Loss: {round(avg_results_array[2], 6)} | Average Policy Loss: {round(avg_results_array[3], 6)}")
+        f"Total Return: {avg_results_array[0]} | Max Return: {avg_results_array[1]} | Value Loss: {str(round(avg_results_array[2], 6))} | Average Policy Loss: {str(round(avg_results_array[3], 6))}")
 
     return avg_results_array
 
@@ -189,7 +189,7 @@ if __name__ == "__main__":
     params["num_actions"] = env.action_spec.num_values
     agent = params.get("agent", Agent)(params, env)
 
-    buffer = fbx.make_flat_buffer(max_length=50000, min_length=1, sample_batch_size=params['num_batches'], add_batch_size=params['num_batches'])
+    buffer = fbx.make_flat_buffer(max_length=params["buffer_max_length"], min_length=params["buffer_min_length"], sample_batch_size=params['num_batches'], add_batch_size=params['num_batches'])
     buffer = buffer.replace(
         init = jax.jit(buffer.init),
         add = jax.jit(buffer.add, donate_argnums=0),
@@ -220,7 +220,6 @@ if __name__ == "__main__":
             "states": states})
 
         if buffer.can_sample(buffer_state):
-            print("Sampling")
             key, sample_key = jax.jit(jax.random.split)(key)
             # does it make sense to sample the buffer more times?
             data = buffer.sample(buffer_state, sample_key).experience.first
