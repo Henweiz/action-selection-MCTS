@@ -11,6 +11,7 @@ from jumanji.types import StepType
 import mctx
 import functools 
 from functools import partial
+import flashbax as fbx
 
 from plotting import plot_rewards, plot_losses
 
@@ -21,14 +22,15 @@ params = {
     "num_channels": 32, 
     "seed": 42,
     "lr": 0.001,
-    "num_episodes": 3,
-    "num_steps": 10,
+    "num_episodes": 100,
+    "num_steps": 500,
     "num_actions": 4,
     "buffer_max_length": 5000,
     "buffer_min_length": 1,
-    "num_batches": 2,
-    "num_simulations": 3,
-    "max_tree_depth": 4
+    "num_batches": 4,
+    "num_simulations": 2,
+    "max_tree_depth": 4,
+    "discount": 0.99,
 }
 
 class Timestep:
@@ -123,8 +125,8 @@ def run_n_steps(state, timestep, subkey, agent, n):
     (state, timestep), (cum_timestep, actions, q_values) = jax.lax.scan(partial_step_fn, (state, timestep), random_keys)
     return cum_timestep, actions, q_values
 
-def gather_data_new(key):
-    #key = jax.random.PRNGKey(params["seed"])
+def gather_data_new():
+    key = jax.random.PRNGKey(params["seed"])
     rng_key, subkey = jax.random.split(key)
 
     keys = jax.random.split(rng_key, params["num_batches"])
@@ -133,31 +135,37 @@ def gather_data_new(key):
     keys = jax.random.split(subkey, params["num_batches"])
     timestep, actions, q_values = jax.vmap(run_n_steps, in_axes=(0, 0, 0, None, None))(state, timestep, keys, agent, params["num_steps"])
 
+
+    #
+    # print(timestep)
+    # print(actions)
+    # print(q_values)
+
     return timestep, actions, q_values
 
-def train(agent: Agent, timestep, action_weights, q_values):
-    # total_reward_array, value_loss_array, policy_loss_array, max_reward_array = [], [], [], []
+
+def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_arr):
     results_array = []
 
-    for batch_num, actions in enumerate(action_weights):
-        states = agent.get_state_from_observation(timestep.observation, True)[batch_num]
-        
-        rewards = timestep.reward[batch_num]
+    for rewards, actions, q_values, states in zip(rewards_arr, action_weights_arr, q_values_arr, states_arr):
+
+        # rewards = timestep.reward[batch_num]
         # TODO - transform the value here
 
-        steptypes = timestep.step_type[batch_num]
-        timesteps = Timestep(step_type=steptypes, reward=rewards)
-        rewards = ep_loss_reward(timesteps)
+        # steptypes = timestep.step_type[batch_num]
+        # timesteps = Timestep(step_type=steptypes, reward=rewards)
+        # rewards = ep_loss_reward(timesteps)
 
         results_array.append([
             jnp.sum(rewards).item(),
             jnp.max(rewards),
-            agent.update_value(states, q_values[batch_num]),
+            agent.update_value(states, q_values),
             agent.update_policy(states, actions)
         ])
 
     avg_results_array = jnp.mean(jnp.array(results_array), axis=0)
-    print(f"Total Return: {avg_results_array[0]} | Max Return: {avg_results_array[1]} | Value Loss: {round(avg_results_array[2], 6)} | Average Policy Loss: {round(avg_results_array[3], 6)}")
+    print(
+        f"Total Return: {avg_results_array[0]} | Max Return: {avg_results_array[1]} | Value Loss: {round(avg_results_array[2], 6)} | Average Policy Loss: {round(avg_results_array[3], 6)}")
 
     return avg_results_array
 
@@ -169,6 +177,10 @@ def process_episode(episode):
     return avg_return
 
 
+def get_dimension(env):
+    if params["env_name"] == "Maze-v0":
+        return [env.unwrapped.num_rows, env.unwrapped.num_cols]
+
 if __name__ == "__main__":
     env = jumanji.make(params["env_name"])
     print(env)
@@ -177,12 +189,43 @@ if __name__ == "__main__":
     params["num_actions"] = env.action_spec.num_values
     agent = params.get("agent", Agent)(params, env)
 
+    buffer = fbx.make_flat_buffer(max_length=50000, min_length=1, sample_batch_size=params['num_batches'], add_batch_size=params['num_batches'])
+    buffer = buffer.replace(
+        init = jax.jit(buffer.init),
+        add = jax.jit(buffer.add, donate_argnums=0),
+        sample = jax.jit(buffer.sample),
+        can_sample = jax.jit(buffer.can_sample),
+    )
+
+    dimensions = get_dimension(env)
+
+    fake_timestep = {
+        "q_value": jnp.zeros((params['num_steps'])),
+        "actions": jnp.zeros((params['num_steps'], params['num_actions'])),
+        "rewards": jnp.zeros((params['num_steps'])),
+        "states": jnp.zeros((params['num_steps'], *dimensions, 1))
+    }
+    buffer_state = buffer.init(fake_timestep)
+
     all_results_array = []
     for episode in range(params["num_episodes"]):
         print(f"Training Episode: {episode + 1}")
         timestep, actions, q_values = gather_data_new()
-        results_array = train(agent, timestep, actions, q_values)
-        all_results_array.append(results_array)
+        states = agent.get_state_from_observation(timestep.observation, True)
+
+        buffer_state = buffer.add(buffer_state, {
+            "q_value": q_values,
+            "actions": actions,
+            "rewards": timestep.reward,
+            "states": states})
+
+        if buffer.can_sample(buffer_state):
+            print("Sampling")
+            key, sample_key = jax.jit(jax.random.split)(key)
+            # does it make sense to sample the buffer more times?
+            data = buffer.sample(buffer_state, sample_key).experience.first
+            results_array = train(agent, data["rewards"], data["actions"], data["q_value"], data["states"])
+            all_results_array.append(results_array)
 
     plot_rewards(all_results_array)
     plot_losses(all_results_array)
