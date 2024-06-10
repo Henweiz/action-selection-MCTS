@@ -33,22 +33,44 @@ params = {
     "discount": 0.99,
 }
 
+policy_dict = {
+    "default": mctx.muzero_policy,
+    "KL_variational": functools.partial(muzero_custom_policy, selector=VariationalKullbackLeibler()),
+    "KL_ex_prop": functools.partial(muzero_custom_policy, selector=ExPropKullbackLeibler()),
+    "squared_hellinger": functools.partial(muzero_custom_policy, selector=SquaredHellinger()),
+}
+
+
 class Timestep:
+    """Tuple for storing the step type and reward together.
+    TODO Consider renaming to avoid confusion with the environment timestep.
+
+    Attributes:
+        step_type: The type of the step (e.g., LAST).
+        reward: The reward received at this timestep.
+    """
+
     def __init__(self, step_type, reward):
         self.step_type = step_type
         self.reward = reward
 
 
+
 @jax.jit
 def env_step(state, action):
+    """A single step in the environment."""
     next_state, next_timestep = env.step(state, action)
     return next_state, next_timestep
 
 def ep_loss_reward(timestep):
-    # Apply the conditional reward change
+    """Reward transformation for the environment."""
     new_reward = jnp.where(timestep.step_type == StepType.LAST, -10, timestep.reward)
     return new_reward
 
+# TODO implement?
+def transform_value(value):
+    """Transform the value from the environment."""
+    return value
 
 def recurrent_fn(agent: Agent, rng_key, action, embedding):
     """One simulation step in MCTS."""
@@ -58,10 +80,10 @@ def recurrent_fn(agent: Agent, rng_key, action, embedding):
     new_state, new_timestep = env_step(state, action)
     prior_logits = agent.get_actions(new_timestep.observation)
 
-    # TODO - transform back the value here
     value = agent.get_value(new_timestep.observation)
 
-
+    # TODO implement?
+    value = transform_value(value)
 
     recurrent_fn_output = mctx.RecurrentFnOutput(
         reward=timestep.reward,
@@ -82,41 +104,39 @@ def get_actions(agent, state, timestep, subkey):
             embedding=(state, timestep),
         )
         return root
+
+    policy = policy_dict[params["policy"]]
     
-    policy_output = mctx.gumbel_muzero_policy(
+    policy_output = policy(
         params=agent,
         rng_key=subkey,
         root=jax.vmap(root_fn, (None, None, 0))(state, timestep, jnp.ones(1)),  # params["num_steps"])),
         recurrent_fn=jax.vmap(recurrent_fn, (None, None, 0, 0)),
         num_simulations=params["num_simulations"],
         max_depth=params["max_tree_depth"],
-        max_num_considered_actions=params["num_actions"],
+        # max_num_considered_actions=params["num_actions"],
         qtransform=partial(
             mctx.qtransform_completed_by_mix_value,
             value_scale=0.1,
             maxvisit_init=50,
             rescale_values=False,
         ),
-        gumbel_scale=1.0,
+        # gumbel_scale=1.0,
     )
     return policy_output
 
 
 def step_fn(agent, state_timestep, subkey):
     state, timestep = state_timestep
-    #print(timestep.observation.grid)
     actions = get_actions(agent, state, timestep, subkey)
-    #print(actions.action)
-    #print(actions.action_weights[0])
-    #print(actions.reward)
+
     assert actions.action.shape[0] == 1
     assert actions.action_weights.shape[0] == 1
     best_action = jnp.argmax(actions.action_weights[0])
     state, timestep = env_step(state, best_action)
     q_value = actions.search_tree.summary().qvalues[
       0, best_action]
-    #print(best_action)
-    #print(q_value)
+
     return (state, timestep), (timestep, actions.action_weights[0], q_value)
 
 def run_n_steps(state, timestep, subkey, agent, n):
@@ -135,12 +155,6 @@ def gather_data_new():
     keys = jax.random.split(subkey, params["num_batches"])
     timestep, actions, q_values = jax.vmap(run_n_steps, in_axes=(0, 0, 0, None, None))(state, timestep, keys, agent, params["num_steps"])
 
-
-    #
-    # print(timestep)
-    # print(actions)
-    # print(q_values)
-
     return timestep, actions, q_values
 
 
@@ -148,9 +162,7 @@ def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_ar
     results_array = []
 
     for rewards, actions, q_values, states in zip(rewards_arr, action_weights_arr, q_values_arr, states_arr):
-
-        # rewards = timestep.reward[batch_num]
-        # TODO - transform the value here
+        # TODO - transform the value here?
 
         # steptypes = timestep.step_type[batch_num]
         # timesteps = Timestep(step_type=steptypes, reward=rewards)
@@ -169,13 +181,6 @@ def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_ar
 
     return avg_results_array
 
-@jax.jit
-def process_episode(episode):
-    print(f"Training Episode: {episode + 1}")
-    timestep, actions, q_values = gather_data_new()
-    avg_return = train(agent, timestep, actions, q_values)
-    return avg_return
-
 
 def get_dimension(env):
     if params["env_name"] == "Maze-v0":
@@ -183,7 +188,7 @@ def get_dimension(env):
 
 if __name__ == "__main__":
     env = jumanji.make(params["env_name"])
-    print(env)
+    print(f"running {params['env_name']}")
     env = AutoResetWrapper(env)
     key = jax.random.PRNGKey(params["seed"])
     params["num_actions"] = env.action_spec.num_values
@@ -197,13 +202,12 @@ if __name__ == "__main__":
         can_sample = jax.jit(buffer.can_sample),
     )
 
-    dimensions = get_dimension(env)
-
+    # Initialize the buffer
     fake_timestep = {
         "q_value": jnp.zeros((params['num_steps'])),
         "actions": jnp.zeros((params['num_steps'], params['num_actions'])),
         "rewards": jnp.zeros((params['num_steps'])),
-        "states": jnp.zeros((params['num_steps'], *dimensions, 1))
+        "states": jnp.zeros((params['num_steps'], *agent.input_shape, 1))
     }
     buffer_state = buffer.init(fake_timestep)
 

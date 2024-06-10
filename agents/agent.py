@@ -19,20 +19,19 @@ class Agent:
         self.policy_optimizer = optax.adam(params['lr'])
         self.value_optimizer = optax.adam(params['lr'])
 
-        input_shape = self.input_shape(self._observation_spec)
-        #print(input_shape)
+        self.input_shape = self.input_shape(self._observation_spec)
 
         key1, key2 = jax.random.split(self.key)
         
         self.policy_train_state = train_state.TrainState.create(
             apply_fn=self.policy_network.apply,
-            params=self.policy_network.init(key1, jnp.ones((1, *input_shape))),
+            params=self.policy_network.init(key1, jnp.ones((1, *self.input_shape))),
             tx=self.policy_optimizer
         )
 
         self.value_train_state = train_state.TrainState.create(
             apply_fn=self.value_network.apply,
-            params=self.value_network.init(key2, jnp.ones((1, *input_shape))),
+            params=self.value_network.init(key2, jnp.ones((1, *self.input_shape))),
             tx=self.value_optimizer
         )
 
@@ -52,8 +51,6 @@ class Agent:
         # Get the probabilities from the policy network
         probs = self.policy_apply_fn(params, states)
         probs = jax.nn.softmax(probs)
-        #print(actions)
-        #print(probs)
         
         # Add epsilon to avoid log(0)
         epsilon = 1e-9
