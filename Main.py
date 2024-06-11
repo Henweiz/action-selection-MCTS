@@ -28,7 +28,7 @@ params = {
     "num_channels": 32, 
     "seed": 42,
     "lr": 0.001,
-    "num_episodes": 50,
+    "num_episodes": 200,
     "num_steps": 200,
     "num_actions": 4,
     "buffer_max_length": 50000,
@@ -111,7 +111,7 @@ def get_actions(agent, state, timestep, subkey):
         return root
 
     policy = policy_dict[params["policy"]]
-    
+
     policy_output = policy(
         params=agent,
         rng_key=subkey,
@@ -140,8 +140,11 @@ def step_fn(agent, state_timestep, subkey):
     assert actions.action_weights.shape[0] == 1
     best_action = actions.action[0]
     state, timestep = env_step(state, best_action)
-    q_value = actions.search_tree.summary().qvalues[0, best_action]
-
+    q_value = actions.search_tree.summary().qvalues[
+      actions.search_tree.ROOT_INDEX, best_action]
+    #weights = jax.nn.one_hot(best_action, params["num_actions"])
+    #print(best_action)
+    #print(q_value)
     return (state, timestep), (timestep, actions.action_weights[0], q_value)
 
 def run_n_steps(state, timestep, subkey, agent, n):
@@ -182,7 +185,7 @@ def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_ar
 
     avg_results_array = jnp.mean(jnp.array(results_array), axis=0)
     print(
-        f"Total Return: {avg_results_array[0]} | Max Return: {avg_results_array[1]} | Value Loss: {str(round(avg_results_array[2], 6))} | Average Policy Loss: {str(round(avg_results_array[3], 6))}")
+        f"Total Return: {avg_results_array[0]} | Max Reward: {avg_results_array[1]} | Value Loss: {str(round(avg_results_array[2], 6))} | Average Policy Loss: {str(round(avg_results_array[3], 6))}")
 
     return avg_results_array
 
@@ -221,6 +224,8 @@ if __name__ == "__main__":
         print(f"Training Episode: {episode + 1}")
         timestep, actions, q_values = gather_data_new()
         states = agent.get_state_from_observation(timestep.observation, True)
+        avg = jnp.sum(timestep.reward).item() / params["num_batches"]
+        print(f"Avg Rewards: {avg}")
 
         buffer_state = buffer.add(buffer_state, {
             "q_value": q_values,
@@ -232,7 +237,10 @@ if __name__ == "__main__":
             key, sample_key = jax.jit(jax.random.split)(key)
             # does it make sense to sample the buffer more times?
             data = buffer.sample(buffer_state, sample_key).experience.first
+            #next_data = buffer.sample(buffer_state, sample_key).experience.second
+            #print(data)
             results_array = train(agent, data["rewards"], data["actions"], data["q_value"], data["states"])
+            results_array = results_array.at[0].set(avg)
             all_results_array.append(results_array)
 
     plot_rewards(all_results_array)
