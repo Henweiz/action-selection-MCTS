@@ -212,7 +212,7 @@ if __name__ == "__main__":
         "q_value": jnp.zeros((params['num_steps'])),
         "actions": jnp.zeros((params['num_steps'], params['num_actions'])),
         "rewards": jnp.zeros((params['num_steps'])),
-        "states": jnp.zeros((params['num_steps'], *agent.input_shape, 1))
+        "states": jnp.zeros((params['num_steps'], *agent.input_shape))
     }
     buffer_state = buffer.init(fake_timestep)
 
