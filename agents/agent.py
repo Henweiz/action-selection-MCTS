@@ -50,7 +50,6 @@ class Agent:
     def compute_policy_loss(self, params, states, actions):
         # Get the probabilities from the policy network
         probs = self.policy_apply_fn(params, states)
-        probs = jax.nn.softmax(probs)
         
         # Add epsilon to avoid log(0)
         epsilon = 1e-9
@@ -83,16 +82,17 @@ class Agent:
         state = self.get_state_from_observation(state, True)
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
         actions = jnp.ravel(actions)
-        actions = self.mask_actions(actions, mask)
-        action_probabilities = jax.nn.softmax(actions)
-        return action_probabilities
+
+        masked_actions = self.mask_actions(actions, mask)
+        renormalized_actions = masked_actions / jnp.sum(masked_actions)
+
+        return renormalized_actions
         
     def get_value(self, state):
         state = self.get_state_from_observation(state, True)
 
         value = self.value_apply_fn(self.value_train_state.params, state)
         value = jnp.ravel(value)[0]
-        
 
         return value
     

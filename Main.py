@@ -2,8 +2,7 @@ import jax
 import jax.numpy as jnp
 from agents.agent import Agent
 from agents.agent_2048 import Agent2048
-from agents.agent_knapsack import AgentKnapsack 
-from agents.agent_grid import AgentGrid
+
 from agents.agent_maze import AgentMaze
 import jumanji
 from jumanji.wrappers import VmapAutoResetWrapper, AutoResetWrapper
@@ -12,6 +11,12 @@ import mctx
 import functools 
 from functools import partial
 import flashbax as fbx
+
+from action_selection_rules.solve_norm import ExPropKullbackLeibler, SquaredHellinger
+from action_selection_rules.solve_trust_region import VariationalKullbackLeibler
+from tree_policies import muzero_custom_policy
+
+
 
 from plotting import plot_rewards, plot_losses
 
@@ -78,6 +83,8 @@ def recurrent_fn(agent: Agent, rng_key, action, embedding):
 
     (state, timestep) = embedding
     new_state, new_timestep = env_step(state, action)
+
+
     prior_logits = agent.get_actions(new_timestep.observation)
 
     value = agent.get_value(new_timestep.observation)

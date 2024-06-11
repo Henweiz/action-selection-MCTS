@@ -47,6 +47,7 @@ class KnapsackPolicyNetwork(nn.Module):
         
         # Return the probability distribution over actions using softmax
         action_probs = nn.softmax(logits, axis=-1)
+
         
         return action_probs
 

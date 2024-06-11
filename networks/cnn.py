@@ -23,6 +23,7 @@ class CNNPolicyNetwork(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.leaky_relu(x)
         x = nn.Dense(self.num_actions)(x)
+        x = nn.softmax(x)
         return x
 
 
