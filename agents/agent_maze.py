@@ -24,20 +24,20 @@ class AgentMaze(Agent):
         self.policy_optimizer = optax.adam(params['lr'])
         self.value_optimizer = optax.adam(params['lr'])
 
-        input_shape = self.input_shape(self._observation_spec).shape
-        print(input_shape)
+        self.input_shape = self.input_shape_fn(self._observation_spec).shape
+        print(self.input_shape)
 
         key1, key2 = jax.random.split(self.key)
         
         self.policy_train_state = train_state.TrainState.create(
             apply_fn=self.policy_network.apply,
-            params=self.policy_network.init(key1, jnp.ones((1, *input_shape))),
+            params=self.policy_network.init(key1, jnp.ones((1, *self.input_shape))),
             tx=self.policy_optimizer
         )
 
         self.value_train_state = train_state.TrainState.create(
             apply_fn=self.value_network.apply,
-            params=self.value_network.init(key2, jnp.ones((1, *input_shape))),
+            params=self.value_network.init(key2, jnp.ones((1, *self.input_shape))),
             tx=self.value_optimizer
         )
 
@@ -47,7 +47,7 @@ class AgentMaze(Agent):
         self.value_grad_fn = jax.value_and_grad(self.compute_value_loss)
 
 
-    def input_shape(self, observation_spec):
+    def input_shape_fn(self, observation_spec):
         return self.process_observation(observation_spec)
 
     def get_state_from_observation(self, observation, batched=True):

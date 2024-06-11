@@ -23,6 +23,7 @@ from plotting import plot_rewards, plot_losses
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
     "env_name": "Maze-v0",
+    "policy": "KL_variational",
     "agent": AgentMaze,
     "num_channels": 32, 
     "seed": 42,
@@ -32,8 +33,8 @@ params = {
     "num_actions": 4,
     "buffer_max_length": 50000,
     "buffer_min_length": 4,
-    "num_batches": 32,
-    "num_simulations": 16,
+    "num_batches": 16,
+    "num_simulations": 4,
     "max_tree_depth": 4,
     "discount": 0.99,
 }
@@ -72,10 +73,6 @@ def ep_loss_reward(timestep):
     new_reward = jnp.where(timestep.step_type == StepType.LAST, -10, timestep.reward)
     return new_reward
 
-# TODO implement?
-def transform_value(value):
-    """Transform the value from the environment."""
-    return value
 
 def recurrent_fn(agent: Agent, rng_key, action, embedding):
     """One simulation step in MCTS."""
@@ -84,14 +81,13 @@ def recurrent_fn(agent: Agent, rng_key, action, embedding):
     (state, timestep) = embedding
     new_state, new_timestep = env_step(state, action)
 
-
+    # get the action probabilities from the network
     prior_logits = agent.get_actions(new_timestep.observation)
 
+    # get the value from the network
     value = agent.get_value(new_timestep.observation)
 
-    # TODO implement?
-    value = transform_value(value)
-
+    # return the recurrent function output
     recurrent_fn_output = mctx.RecurrentFnOutput(
         reward=timestep.reward,
         discount=params["discount"],
@@ -102,9 +98,11 @@ def recurrent_fn(agent: Agent, rng_key, action, embedding):
 
 
 def get_actions(agent, state, timestep, subkey):
-    def root_fn(state, timestep, _):
+    """Get the actions from the MCTS"""
 
-        # TODO do transform with the value here?
+    def root_fn(state, timestep, _):
+        """Root function for the MCTS."""
+
         root = mctx.RootFnOutput(
             prior_logits=agent.get_actions(timestep.observation),
             value=agent.get_value(timestep.observation),
@@ -134,15 +132,15 @@ def get_actions(agent, state, timestep, subkey):
 
 
 def step_fn(agent, state_timestep, subkey):
+    """A single step in the environment."""
     state, timestep = state_timestep
     actions = get_actions(agent, state, timestep, subkey)
 
     assert actions.action.shape[0] == 1
     assert actions.action_weights.shape[0] == 1
-    best_action = jnp.argmax(actions.action_weights[0])
+    best_action = actions.action[0]
     state, timestep = env_step(state, best_action)
-    q_value = actions.search_tree.summary().qvalues[
-      0, best_action]
+    q_value = actions.search_tree.summary().qvalues[0, best_action]
 
     return (state, timestep), (timestep, actions.action_weights[0], q_value)
 

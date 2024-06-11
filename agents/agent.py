@@ -19,7 +19,7 @@ class Agent:
         self.policy_optimizer = optax.adam(params['lr'])
         self.value_optimizer = optax.adam(params['lr'])
 
-        self.input_shape = self.input_shape(self._observation_spec)
+        self.input_shape = self.input_shape_fn(self._observation_spec)
 
         key1, key2 = jax.random.split(self.key)
         
@@ -40,7 +40,7 @@ class Agent:
         self.policy_grad_fn = jax.value_and_grad(self.compute_policy_loss)
         self.value_grad_fn = jax.value_and_grad(self.compute_value_loss)
     
-    def input_shape(self, observation_spec):
+    def input_shape_fn(self, observation_spec):
         raise NotImplementedError()
 
     def get_state_from_observation(self, observation, batched):
@@ -79,16 +79,24 @@ class Agent:
 
     def get_actions(self, state):
         mask = state.action_mask
+
+        # the state has to be gotten depending on the environment
         state = self.get_state_from_observation(state, True)
+
+        # forward pass of the policy network
         actions = self.policy_apply_fn(self.policy_train_state.params, state)
         actions = jnp.ravel(actions)
 
+        # mask and renormalize the actions
         masked_actions = self.mask_actions(actions, mask)
         renormalized_actions = masked_actions / jnp.sum(masked_actions)
 
         return renormalized_actions
         
     def get_value(self, state):
+        # TODO do transform with the value here?
+
+        # the state has to be gotten depending on the environment
         state = self.get_state_from_observation(state, True)
 
         value = self.value_apply_fn(self.value_train_state.params, state)
