@@ -16,11 +16,11 @@ class CNNPolicyNetwork(nn.Module):
     @nn.compact
     def __call__(self, x):
         #x = jnp.reshape(x, (x.shape[0], -1)) #flatten, do not that we get errors when we do not input batches
-        key = random.PRNGKey(758493)
+        k_size = (2, 2)
 
-        x = nn.Conv(features=self.num_channels, kernel_size=(3, 3))(x)
+        x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)
-        x = nn.Conv(features=self.num_channels, kernel_size=(3, 3))(x)
+        x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)
         x = jnp.reshape(x, (x.shape[0], -1))  # Flatten
         x = nn.Dense(64)(x)
@@ -28,8 +28,6 @@ class CNNPolicyNetwork(nn.Module):
         x = nn.Dense(64)(x)
         x = nn.leaky_relu(x)
         x = nn.Dense(self.num_actions)(x)
-        # TODO remove
-        # x = random.uniform(key, shape=x.shape)
         x = nn.softmax(x)
         return x
 
@@ -44,13 +42,16 @@ class CNNValueNetwork(nn.Module):
     def __call__(self, x):
         # key = random.PRNGKey(758493)
         # x = random.uniform(key, shape=x.shape)
+        k_size = (2, 2)
 
         #x = jnp.reshape(x, (x.shape[0], -1)) # flatten
-        x = nn.Conv(features=self.num_channels, kernel_size=(2, 2), strides=(2, 2))(x)
+        x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)
-        x = nn.Conv(features=self.num_channels, kernel_size=(2, 2), strides=(1, 1))(x)
+        x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)
         x = jnp.reshape(x, (x.shape[0], -1))  # Flatten
+        x = nn.Dense(128)(x)
+        x = nn.leaky_relu(x)
         x = nn.Dense(128)(x)
         x = nn.leaky_relu(x)
         x = nn.Dense(1)(x)

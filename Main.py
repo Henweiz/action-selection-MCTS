@@ -14,6 +14,8 @@ import functools
 from functools import partial
 import flashbax as fbx
 
+from jumanji.environments.routing.maze import generator
+
 from action_selection_rules.solve_norm import ExPropKullbackLeibler, SquaredHellinger
 from action_selection_rules.solve_trust_region import VariationalKullbackLeibler
 from tree_policies import muzero_custom_policy
@@ -25,20 +27,24 @@ from plotting import plot_rewards, plot_losses
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
     "env_name": "Maze-v0",
+    "maze_size": (5, 5),
+
     "policy": "default",
     "agent": AgentMaze,
     "num_channels": 32, 
     "seed": 43,
-    "lr": 0.01, # 0.00003
+    "lr": 0.005, # 0.00003
     "num_episodes": 200,
-    "num_steps": 50,
+    "num_steps": 72,
     "num_actions": 4,
-    "buffer_max_length": 50000,
+    "buffer_max_length": 1000000,
     "buffer_min_length": 4,
-    "num_batches": 64,
+    "num_batches": 128,
     "num_simulations": 16,
-    "max_tree_depth": 12,
+    "max_tree_depth": 16,
     "discount": 0.99,
+
+
 }
 
 policy_dict = {
@@ -194,7 +200,12 @@ def get_dimension(env):
         return [env.unwrapped.num_rows, env.unwrapped.num_cols]
 
 if __name__ == "__main__":
-    env = jumanji.make(params["env_name"])
+    if params["env_name"] == "Maze-v0":
+        gen = generator.RandomGenerator(*params["maze_size"])
+        env = jumanji.make(params["env_name"], generator=gen)
+    else:
+        env = jumanji.make(params["env_name"])
+
     print(f"running {params['env_name']}")
     env = AutoResetWrapper(env)
     key = jax.random.PRNGKey(params["seed"])
@@ -228,7 +239,10 @@ if __name__ == "__main__":
     next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
 
     for episode in range(params["num_episodes"]):
-        timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data_new(next_ep_state, next_ep_timestep, subkey)
+        # get new key every episode
+        key, sample_key = jax.jit(jax.random.split)(key)
+
+        timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data_new(next_ep_state, next_ep_timestep, sample_key)
 
         states = agent.get_state_from_observation(timestep.observation, True)
         avg = jnp.sum(timestep.reward).item() / params["num_batches"]

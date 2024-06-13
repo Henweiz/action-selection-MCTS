@@ -64,4 +64,5 @@ class AgentMaze(Agent):
         obs = observation.walls.astype(float)
         obs = obs.at[tuple(observation.agent_position)].set(agent)
         obs = obs.at[tuple(observation.target_position)].set(target)
+        # jax.debug.print("{obs}", obs=obs)
         return jnp.expand_dims(obs, axis=-1)  # Adding a channels axis.
