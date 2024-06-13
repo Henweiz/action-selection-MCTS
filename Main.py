@@ -1,10 +1,11 @@
+from typing import Optional
 import jax
 import jax.numpy as jnp
 from jax import random
 
 from agents.agent import Agent
 from agents.agent_2048 import Agent2048
-
+from agents.agent_grid import AgentGrid
 from agents.agent_maze import AgentMaze
 import jumanji
 from jumanji.wrappers import VmapAutoResetWrapper, AutoResetWrapper
@@ -26,22 +27,24 @@ from plotting import plot_rewards, plot_losses
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
-    "env_name": "Maze-v0",
+    "env_name": "Snake-v1",
     "maze_size": (5, 5),
 
     "policy": "default",
-    "agent": AgentMaze,
+    "agent": AgentGrid,
     "num_channels": 32, 
-    "seed": 43,
+    "seed": 42,
     "lr": 0.005, # 0.00003
     "num_episodes": 200,
-    "num_steps": 72,
+    "num_steps": 100,
     "num_actions": 4,
-    "buffer_max_length": 1000000,
-    "buffer_min_length": 4,
-    "num_batches": 128,
+    "obs_spec": Optional,
+    "buffer_max_length": 10000,
+    "buffer_min_length": 2,
+    "num_batches": 32,
+    'sample_size': 64,
     "num_simulations": 16,
-    "max_tree_depth": 16,
+    "max_tree_depth": 12,
     "discount": 0.99,
 
 
@@ -90,10 +93,7 @@ def recurrent_fn(agent: Agent, rng_key, action, embedding):
     new_state, new_timestep = env_step(state, action)
 
     # get the action probabilities from the network
-    prior_logits = agent.get_actions(new_timestep.observation)
-
-    # get the value from the network
-    value = agent.get_value(new_timestep.observation)
+    prior_logits, value = agent.get_output(new_timestep.observation)
 
     # return the recurrent function output
     recurrent_fn_output = mctx.RecurrentFnOutput(
@@ -110,10 +110,11 @@ def get_actions(agent, state, timestep, subkey):
 
     def root_fn(state, timestep, _):
         """Root function for the MCTS."""
+        priors, value = agent.get_output(timestep.observation)
 
         root = mctx.RootFnOutput(
-            prior_logits=agent.get_actions(timestep.observation),
-            value=agent.get_value(timestep.observation),
+            prior_logits=priors,
+            value=value,
             embedding=(state, timestep),
         )
         return root
@@ -180,24 +181,20 @@ def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_ar
         # steptypes = timestep.step_type[batch_num]
         # timesteps = Timestep(step_type=steptypes, reward=rewards)
         # rewards = ep_loss_reward(timesteps)
+        #jax.debug.breakpoint()
 
         results_array.append([
             jnp.sum(rewards).item(),
             jnp.max(rewards),
-            agent.update_value(states, q_values),
-            agent.update_policy(states, actions)
+            agent.update_fn(states, actions, q_values)
         ])
 
     avg_results_array = jnp.mean(jnp.array(results_array), axis=0)
     print(
-        f"Value Loss: {str(round(avg_results_array[2], 6))} | Policy Loss: {str(round(avg_results_array[3], 6))}")
+        f"Loss: {str(round(avg_results_array[2], 6))}")
 
     return avg_results_array
 
-
-def get_dimension(env):
-    if params["env_name"] == "Maze-v0":
-        return [env.unwrapped.num_rows, env.unwrapped.num_cols]
 
 if __name__ == "__main__":
     if params["env_name"] == "Maze-v0":
@@ -210,9 +207,10 @@ if __name__ == "__main__":
     env = AutoResetWrapper(env)
     key = jax.random.PRNGKey(params["seed"])
     params["num_actions"] = env.action_spec.num_values
-    agent = params.get("agent", Agent)(params, env)
+    params["obs_spec"] = env.observation_spec
+    agent = params.get("agent", Agent)(params)
 
-    buffer = fbx.make_flat_buffer(max_length=params["buffer_max_length"], min_length=params["buffer_min_length"], sample_batch_size=params['num_batches'], add_batch_size=params['num_batches'])
+    buffer = fbx.make_flat_buffer(max_length=params["buffer_max_length"], min_length=params["buffer_min_length"], sample_batch_size=params['sample_size'], add_batch_size=params['num_batches'])
     buffer = buffer.replace(
         init = jax.jit(buffer.init),
         add = jax.jit(buffer.add, donate_argnums=0),
@@ -260,7 +258,7 @@ if __name__ == "__main__":
             # does it make sense to sample the buffer more times?
             data = buffer.sample(buffer_state, sample_key).experience.first
             #next_data = buffer.sample(buffer_state, sample_key).experience.second
-            #print(data)
+            #jax.debug.print("{data.shape}", data=data["states"])
             results_array = train(agent, data["rewards"], data["actions"], data["q_value"], data["states"])
             results_array = results_array.at[0].set(avg)
             all_results_array.append(results_array)
@@ -269,9 +267,7 @@ if __name__ == "__main__":
     plot_losses(all_results_array)
     print(avg_rewards)
 
-
-    key = jax.random.PRNGKey(params["seed"])
-    state, timestep = env.reset(key)
+    state, timestep = env.reset(keys[0])
     for step in range(params["num_steps"]):
         env.render(state)
         (new_state, new_timestep), (cum_timestep, actions, q_values) = step_fn(agent, (state, timestep), key)

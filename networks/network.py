@@ -4,34 +4,34 @@ from flax import linen as nn
 from jax import grad, jit
 from flax.training import train_state
 import optax
+    
+class PolicyValueNetwork(nn.Module):
 
-class PolicyNetwork(nn.Module):
-    """A simple policy network that outputs a probability distribution over actions."""
-
-    num_actions: int # Number of possible actions
-
-    @nn.compact
-    def __call__(self, x):
-        x = jnp.reshape(x, (x.shape[0], -1)) #flatten, do not that we get errors when we do not input batches
-        x = nn.Dense(64)(x)
-        x = nn.leaky_relu(x)
-        x = nn.Dense(64)(x)
-        x = nn.leaky_relu(x)
-        x = nn.Dense(self.num_actions)(x)
-        x = nn.softmax(x)
-        return x
-
-# Define the Value Network
-class ValueNetwork(nn.Module):
-    """A simple value network."""
-    #num_outputs: int = 1
+    num_actions: int
+    num_channels: int
+    
 
     @nn.compact
     def __call__(self, x):
-        x = jnp.reshape(x, (x.shape[0], -1)) # flatten
+        # Conv Layers + MLP Layer.
+        k_size = (3, 3)
+        x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
+        x = nn.leaky_relu(x)
+        x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
+        x = nn.leaky_relu(x)
+        x = jnp.reshape(x, (x.shape[0], -1))  # Flatten
         x = nn.Dense(128)(x)
         x = nn.leaky_relu(x)
-        x = nn.Dense(128)(x)
-        x = nn.leaky_relu(x)
-        x = nn.Dense(1)(x)
-        return x
+
+        # Policy Layers.
+        actions = nn.Dense(128)(x)
+        actions = nn.leaky_relu(actions)
+        actions = nn.Dense(self.num_actions)(actions)
+        actions = nn.softmax(actions)
+
+        # Value Layers
+        value = nn.Dense(128)(x)
+        value = nn.leaky_relu(value)
+        value = nn.Dense(1)(value)
+
+        return actions, value
