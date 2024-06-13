@@ -43,6 +43,7 @@ class AgentMaze(Agent):
 
         self.policy_apply_fn = jax.jit(self.policy_train_state.apply_fn)
         self.value_apply_fn = jax.jit(self.value_train_state.apply_fn)
+
         self.policy_grad_fn = jax.value_and_grad(self.compute_policy_loss)
         self.value_grad_fn = jax.value_and_grad(self.compute_value_loss)
 

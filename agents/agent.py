@@ -48,17 +48,33 @@ class Agent:
 
     # KL Loss between the mcts target & the policy network.
     def compute_policy_loss(self, params, states, actions):
-        # Get the probabilities from the policy network
+
         probs = self.policy_apply_fn(params, states)
-        
-        # Add epsilon to avoid log(0)
-        epsilon = 1e-9
-        
-        # Compute the KL divergence
-        kl_divergence = jnp.sum(actions * jnp.log((actions + epsilon) / (probs + epsilon)), axis=-1)
-        mean_loss = jnp.mean(kl_divergence)
-        
-        return mean_loss
+
+        # optax expects this to be log probabilities
+        log_probs = jnp.log(probs + 1e-9)
+
+        targets = actions
+
+        kl_loss = optax.losses.kl_divergence(log_predictions=log_probs, targets=targets)
+
+        # You might want to sum or average kl_loss over your batch here depending on your needs
+        return jnp.mean(kl_loss)
+
+
+        # # Get the probabilities from the policy network, they are softmaxed
+        # probs = self.policy_apply_fn(params, states)
+        #
+        # # sums to 1
+        # targets = actions
+        # # Add epsilon to avoid log(0)
+        # epsilon = 1e-9
+        #
+        # # Compute the KL divergence
+        # kl_divergence = jnp.sum(actions * jnp.log((actions + epsilon) / (probs + epsilon)), axis=-1)
+        # mean_loss = jnp.mean(kl_divergence)
+        #
+        # return mean_loss
 
     # MSE Loss between the value network and the returns
     def compute_value_loss(self, params, states, returns):

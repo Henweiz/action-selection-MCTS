@@ -1,5 +1,7 @@
 import jax
 import jax.numpy as jnp
+from jax import random
+
 from agents.agent import Agent
 from agents.agent_2048 import Agent2048
 
@@ -23,19 +25,19 @@ from plotting import plot_rewards, plot_losses
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
     "env_name": "Maze-v0",
-    "policy": "KL_variational",
+    "policy": "default",
     "agent": AgentMaze,
     "num_channels": 32, 
-    "seed": 42,
-    "lr": 0.001,
+    "seed": 43,
+    "lr": 0.01, # 0.00003
     "num_episodes": 200,
-    "num_steps": 200,
+    "num_steps": 50,
     "num_actions": 4,
     "buffer_max_length": 50000,
     "buffer_min_length": 4,
-    "num_batches": 16,
-    "num_simulations": 4,
-    "max_tree_depth": 4,
+    "num_batches": 64,
+    "num_simulations": 16,
+    "max_tree_depth": 12,
     "discount": 0.99,
 }
 
@@ -138,7 +140,10 @@ def step_fn(agent, state_timestep, subkey):
 
     assert actions.action.shape[0] == 1
     assert actions.action_weights.shape[0] == 1
+
+    # key = jax.random.PRNGKey(42)
     best_action = actions.action[0]
+
     state, timestep = env_step(state, best_action)
     q_value = actions.search_tree.summary().qvalues[
       actions.search_tree.ROOT_INDEX, best_action]
@@ -150,20 +155,14 @@ def step_fn(agent, state_timestep, subkey):
 def run_n_steps(state, timestep, subkey, agent, n):
     random_keys = jax.random.split(subkey, n)
     partial_step_fn = functools.partial(step_fn, agent)
-    (state, timestep), (cum_timestep, actions, q_values) = jax.lax.scan(partial_step_fn, (state, timestep), random_keys)
-    return cum_timestep, actions, q_values
+    (next_ep_state, next_ep_timestep), (cum_timestep, actions, q_values) = jax.lax.scan(partial_step_fn, (state, timestep), random_keys)
+    return cum_timestep, actions, q_values, next_ep_state, next_ep_timestep
 
-def gather_data_new():
-    key = jax.random.PRNGKey(params["seed"])
-    rng_key, subkey = jax.random.split(key)
-
-    keys = jax.random.split(rng_key, params["num_batches"])
-    state, timestep = jax.vmap(env.reset)(keys)
-
+def gather_data_new(state, timestep, subkey):
     keys = jax.random.split(subkey, params["num_batches"])
-    timestep, actions, q_values = jax.vmap(run_n_steps, in_axes=(0, 0, 0, None, None))(state, timestep, keys, agent, params["num_steps"])
+    timestep, actions, q_values, next_ep_state, next_ep_timestep = jax.vmap(run_n_steps, in_axes=(0, 0, 0, None, None))(state, timestep, keys, agent, params["num_steps"])
 
-    return timestep, actions, q_values
+    return timestep, actions, q_values, next_ep_state, next_ep_timestep
 
 
 def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_arr):
@@ -185,7 +184,7 @@ def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_ar
 
     avg_results_array = jnp.mean(jnp.array(results_array), axis=0)
     print(
-        f"Total Return: {avg_results_array[0]} | Max Reward: {avg_results_array[1]} | Value Loss: {str(round(avg_results_array[2], 6))} | Average Policy Loss: {str(round(avg_results_array[3], 6))}")
+        f"Value Loss: {str(round(avg_results_array[2], 6))} | Policy Loss: {str(round(avg_results_array[3], 6))}")
 
     return avg_results_array
 
@@ -220,12 +219,21 @@ if __name__ == "__main__":
     buffer_state = buffer.init(fake_timestep)
 
     all_results_array = []
+    avg_rewards = []
+
+    key = jax.random.PRNGKey(params["seed"])
+    rng_key, subkey = jax.random.split(key)
+
+    keys = jax.random.split(rng_key, params["num_batches"])
+    next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
+
     for episode in range(params["num_episodes"]):
-        print(f"Training Episode: {episode + 1}")
-        timestep, actions, q_values = gather_data_new()
+        timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data_new(next_ep_state, next_ep_timestep, subkey)
+
         states = agent.get_state_from_observation(timestep.observation, True)
         avg = jnp.sum(timestep.reward).item() / params["num_batches"]
-        print(f"Avg Rewards: {avg}")
+        print(f"Episode {episode + 1} avg reward: {avg}")
+        avg_rewards.append(avg)
 
         buffer_state = buffer.add(buffer_state, {
             "q_value": q_values,
@@ -245,6 +253,7 @@ if __name__ == "__main__":
 
     plot_rewards(all_results_array)
     plot_losses(all_results_array)
+    print(avg_rewards)
 
 
     key = jax.random.PRNGKey(params["seed"])
