@@ -1,10 +1,9 @@
-from networks.network import PolicyNetwork, ValueNetwork
+from networks.network import PolicyValueNetwork
 from agents.agent import Agent
 
 class Agent2048(Agent): 
     def __init__(self, params, env):
-        params["policy_network"] = PolicyNetwork
-        params["value_network"] = ValueNetwork
+        params["network"] = PolicyValueNetwork
         super().__init__(params, env)
 
     def input_shape(self, observation_spec):
