@@ -14,8 +14,8 @@ class PolicyValueNetwork(nn.Module):
     @nn.compact
     def __call__(self, x):
         # Conv Layers + MLP Layer.
-        k_size = (3, 3)
-        x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
+        k_size = (2, 2)
+        x = nn.Conv(features=self.num_channels, kernel_size=k_size, strides=(2,2))(x)
         x = nn.leaky_relu(x)
         x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)
