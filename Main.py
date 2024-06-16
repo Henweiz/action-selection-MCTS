@@ -27,24 +27,24 @@ from plotting import plot_rewards, plot_losses
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
-    "env_name": "Snake-v1",
+    "env_name": "Game2048-v1",
     "maze_size": (5, 5),
 
     "policy": "default",
-    "agent": AgentGrid,
+    "agent": Agent2048,
     "num_channels": 32, 
     "seed": 42,
     "lr": 0.005, # 0.00003
-    "num_episodes": 200,
-    "num_steps": 100,
+    "num_episodes": 300,
+    "num_steps": 5000,
     "num_actions": 4,
     "obs_spec": Optional,
     "buffer_max_length": 10000,
     "buffer_min_length": 2,
-    "num_batches": 32,
+    "num_batches": 16,
     'sample_size': 64,
-    "num_simulations": 16,
-    "max_tree_depth": 12,
+    "num_simulations": 16, # 16,
+    "max_tree_depth": 12,# 12,
     "discount": 0.99,
 
 
@@ -154,6 +154,7 @@ def step_fn(agent, state_timestep, subkey):
     state, timestep = env_step(state, best_action)
     q_value = actions.search_tree.summary().qvalues[
       actions.search_tree.ROOT_INDEX, best_action]
+
     #weights = jax.nn.one_hot(best_action, params["num_actions"])
     #print(best_action)
     #print(q_value)
@@ -221,14 +222,15 @@ if __name__ == "__main__":
     # Initialize the buffer
     fake_timestep = {
         "q_value": jnp.zeros((params['num_steps'])),
-        "actions": jnp.zeros((params['num_steps'], params['num_actions'])),
-        "rewards": jnp.zeros((params['num_steps'])),
-        "states": jnp.zeros((params['num_steps'], *agent.input_shape))
+        "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
+        "rewards": jnp.zeros((params['num_steps']), dtype=jnp.float32),
+        "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.int32)
     }
     buffer_state = buffer.init(fake_timestep)
 
     all_results_array = []
     avg_rewards = []
+    avg_max_rewards = []
 
     key = jax.random.PRNGKey(params["seed"])
     rng_key, subkey = jax.random.split(key)
@@ -244,13 +246,18 @@ if __name__ == "__main__":
 
         states = agent.get_state_from_observation(timestep.observation, True)
         avg = jnp.sum(timestep.reward).item() / params["num_batches"]
-        print(f"Episode {episode + 1} avg reward: {avg}")
+        # get the average max reward in the batch
+        avg_max = jnp.sum(jnp.max(timestep.reward, axis=1)).item() / params["num_batches"]
+        abs_max = jnp.max(timestep.reward).item()
+
+        print(f"Episode {episode + 1} avg reward: {avg} avg max reward: {avg_max}, max reward: {abs_max}")
         avg_rewards.append(avg)
+        avg_max_rewards.append(avg_max)
 
         buffer_state = buffer.add(buffer_state, {
             "q_value": q_values,
             "actions": actions,
-            "rewards": timestep.reward,
+            "rewards": timestep.reward, # agent.normalize_rewards(timestep.reward),
             "states": states})
 
         if buffer.can_sample(buffer_state):

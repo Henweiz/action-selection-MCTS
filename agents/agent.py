@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import optax
-from networks.network import PolicyValueNetwork
+from networks.network_2048 import PolicyValueNetwork
 from flax.training import train_state
 
 class Agent: 
@@ -27,10 +27,17 @@ class Agent:
 
     def get_state_from_observation(self, observation, batched):
         raise NotImplementedError()
+
+    def normalize_rewards(self, r):
+        return r
+
+    def reverse_normalize_rewards(self, r):
+        return r
     
     def loss_fn(self, params, states, actions, returns):
         # KL Loss for policy part of the network:
         probs, values = self.net_apply_fn(params, states)
+
 
         # optax expects this to be log probabilities
         log_probs = jnp.log(probs + 1e-9)
@@ -48,6 +55,7 @@ class Agent:
 
 
     def update_fn(self, states, actions, returns):
+        returns = self.normalize_rewards(returns)
         loss, grads = self.grad_fn(self.train_state.params, states, actions, returns)
         self.train_state = self.train_state.apply_gradients(grads=grads)
         return loss
@@ -67,6 +75,8 @@ class Agent:
         # mask and renormalize the actions
         masked_actions = self.mask_actions(actions, mask)
         renormalized_actions = masked_actions / jnp.sum(masked_actions)
+
+        value = self.reverse_normalize_rewards(value)
 
         return renormalized_actions, value
         
