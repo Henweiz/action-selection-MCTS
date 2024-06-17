@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 from jax import random
 
+import logging
 from agents.agent import Agent
 from agents.agent_2048 import Agent2048
 from agents.agent_grid import AgentGrid
@@ -22,8 +23,7 @@ from action_selection_rules.solve_trust_region import VariationalKullbackLeibler
 from tree_policies import muzero_custom_policy
 import wandb
 
-
-from plotting import plot_rewards, plot_losses
+import wandb_logging
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
@@ -40,12 +40,13 @@ params = {
     "obs_spec": Optional,
     "buffer_max_length": 10000,
     "buffer_min_length": 2,
-    "num_batches": 16,
-    "sample_size": 64,
-    "num_simulations": 16,  # 16,
-    "max_tree_depth": 12,  # 12,
-    "discount": 0.99,
+    "num_batches": 4,
+    "sample_size": 16,
+    "num_simulations": 2,  # 16,
+    "max_tree_depth": 2,  # 12,
+    "discount": 1,
     "logging": True,
+    "run_in_kaggle": False,
 }
 
 policy_dict = {
@@ -162,9 +163,6 @@ def step_fn(agent, state_timestep, subkey):
         actions.search_tree.ROOT_INDEX, best_action
     ]
 
-    # weights = jax.nn.one_hot(best_action, params["num_actions"])
-    # print(best_action)
-    # print(q_value)
     return (state, timestep), (timestep, actions.action_weights[0], q_value)
 
 
@@ -186,35 +184,20 @@ def gather_data_new(state, timestep, subkey):
     return timestep, actions, q_values, next_ep_state, next_ep_timestep
 
 
-def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_arr):
-    results_array = []
+def train(agent: Agent, action_weights_arr, q_values_arr, states_arr):
+    losses = [agent.update_fn(states, actions, q_values)
+              for actions, q_values, states in zip(action_weights_arr, q_values_arr, states_arr)]
 
-    for rewards, actions, q_values, states in zip(
-        rewards_arr, action_weights_arr, q_values_arr, states_arr
-    ):
-        # TODO - transform the value here?
-
-        # steptypes = timestep.step_type[batch_num]
-        # timesteps = Timestep(step_type=steptypes, reward=rewards)
-        # rewards = ep_loss_reward(timesteps)
-        # jax.debug.breakpoint()
-
-        results_array.append([
-            jnp.sum(rewards).item(),
-            jnp.max(rewards),
-            agent.update_fn(states, actions, q_values)
-        ])
-
-    avg_results_array = jnp.mean(jnp.array(results_array), axis=0)
-    print(f"Loss: {str(round(avg_results_array[2], 6))}")
-
-    return avg_results_array
+    return jnp.mean(jnp.array(losses), axis=0)
 
 
 if __name__ == "__main__":
-    if params["logging"]:
-        wandb.init(project="action-selection-mcts", config=params)
 
+    # Initialize wandb
+    if params["logging"]:
+        wandb_logging.init_wandb(params)
+
+    # Initialize the environment
     if params["env_name"] == "Maze-v0":
         gen = generator.RandomGenerator(*params["maze_size"])
         env = jumanji.make(params["env_name"], generator=gen)
@@ -223,25 +206,29 @@ if __name__ == "__main__":
 
     print(f"running {params['env_name']}")
     env = AutoResetWrapper(env)
-    key = jax.random.PRNGKey(params["seed"])
+
+    # Initialize the agent
     params["num_actions"] = env.action_spec.num_values
     params["obs_spec"] = env.observation_spec
     agent = params.get("agent", Agent)(params)
 
+    # Specify buffer parameters
     buffer = fbx.make_flat_buffer(
         max_length=params["buffer_max_length"],
         min_length=params["buffer_min_length"],
         sample_batch_size=params["sample_size"],
         add_batch_size=params["num_batches"],
     )
+
+    # Jit the buffer functions
     buffer = buffer.replace(
-        init = jax.jit(buffer.init),
-        add = jax.jit(buffer.add, donate_argnums=0),
-        sample = jax.jit(buffer.sample),
-        can_sample = jax.jit(buffer.can_sample),
+        init=jax.jit(buffer.init),
+        add=jax.jit(buffer.add, donate_argnums=0),
+        sample=jax.jit(buffer.sample),
+        can_sample=jax.jit(buffer.can_sample),
     )
 
-    # Initialize the buffer
+    # Specify buffer format
     fake_timestep = {
         "q_value": jnp.zeros((params['num_steps'])),
         "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
@@ -250,34 +237,27 @@ if __name__ == "__main__":
     }
     buffer_state = buffer.init(fake_timestep)
 
-    all_results_array = []
-    avg_rewards = []
-    avg_max_rewards = []
-
+    # Initialize the random keys
     key = jax.random.PRNGKey(params["seed"])
     rng_key, subkey = jax.random.split(key)
-
     keys = jax.random.split(rng_key, params["num_batches"])
+
+    # Get the initial state and timestep
     next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
 
     for episode in range(params["num_episodes"]):
-        # get new key every episode
+        # Get new key every episode
         key, sample_key = jax.jit(jax.random.split)(key)
 
+        # Gather data
         timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data_new(
             next_ep_state, next_ep_timestep, sample_key
         )
 
+        # Get state in the correct format given environment
         states = agent.get_state_from_observation(timestep.observation, True)
-        avg = jnp.sum(timestep.reward).item() / params["num_batches"]
-        # get the average max reward in the batch
-        avg_max = jnp.sum(jnp.max(timestep.reward, axis=1)).item() / params["num_batches"]
-        abs_max = jnp.max(timestep.reward).item()
 
-        print(f"Episode {episode + 1} avg reward: {avg} avg max reward: {avg_max}, max reward: {abs_max}")
-        avg_rewards.append(avg)
-        avg_max_rewards.append(avg_max)
-
+        # Add data to buffer
         buffer_state = buffer.add(
             buffer_state,
             {
@@ -290,32 +270,13 @@ if __name__ == "__main__":
 
         if buffer.can_sample(buffer_state):
             key, sample_key = jax.jit(jax.random.split)(key)
-            # does it make sense to sample the buffer more times?
             data = buffer.sample(buffer_state, sample_key).experience.first
-            # next_data = buffer.sample(buffer_state, sample_key).experience.second
-            # jax.debug.print("{data.shape}", data=data["states"])
-            results_array = train(
-                agent, data["rewards"], data["actions"], data["q_value"], data["states"]
-            )
-            results_array = results_array.at[0].set(avg)
-            all_results_array.append(results_array)
-            if wandb.run is not None:
-                wandb.log(
-                    {
-                        "Total return": results_array[0],
-                        "Max return": results_array[1],
-                        "Loss": results_array[2:],
-                    }
-                )
+            loss = train(agent, data["actions"], data["q_value"], data["states"])
+        else:
+            loss = None
 
-    plot_losses(all_results_array)
-    plot_rewards(all_results_array)
-    print(avg_rewards)
+        if params["logging"]:
+            wandb_logging.log_rewards(timestep.reward, loss, episode, params)
 
-    # state, timestep = env.reset(keys[0])
-    # for step in range(params["num_steps"]):
-    #     env.render(state)
-    #     (new_state, new_timestep), (cum_timestep, actions, q_values) = step_fn(agent, (state, timestep), key)
-    #     state = new_state
-    #     timestep = new_timestep
-
+    if params["logging"]:
+        wandb.finish()
