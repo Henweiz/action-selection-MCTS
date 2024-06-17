@@ -11,7 +11,7 @@ import jumanji
 from jumanji.wrappers import VmapAutoResetWrapper, AutoResetWrapper
 from jumanji.types import StepType
 import mctx
-import functools 
+import functools
 from functools import partial
 import flashbax as fbx
 
@@ -20,7 +20,7 @@ from jumanji.environments.routing.maze import generator
 from action_selection_rules.solve_norm import ExPropKullbackLeibler, SquaredHellinger
 from action_selection_rules.solve_trust_region import VariationalKullbackLeibler
 from tree_policies import muzero_custom_policy
-
+import wandb
 
 
 from plotting import plot_rewards, plot_losses
@@ -29,32 +29,36 @@ from plotting import plot_rewards, plot_losses
 params = {
     "env_name": "Game2048-v1",
     "maze_size": (5, 5),
-
     "policy": "default",
     "agent": Agent2048,
-    "num_channels": 32, 
+    "num_channels": 32,
     "seed": 42,
-    "lr": 0.005, # 0.00003
-    "num_episodes": 300,
-    "num_steps": 5000,
+    "lr": 0.005,  # 0.00003
+    "num_episodes": 15,
+    "num_steps": 100,
     "num_actions": 4,
     "obs_spec": Optional,
     "buffer_max_length": 10000,
     "buffer_min_length": 2,
     "num_batches": 16,
-    'sample_size': 64,
-    "num_simulations": 16, # 16,
-    "max_tree_depth": 12,# 12,
+    "sample_size": 64,
+    "num_simulations": 16,  # 16,
+    "max_tree_depth": 12,  # 12,
     "discount": 0.99,
-
-
+    "logging": True,
 }
 
 policy_dict = {
     "default": mctx.muzero_policy,
-    "KL_variational": functools.partial(muzero_custom_policy, selector=VariationalKullbackLeibler()),
-    "KL_ex_prop": functools.partial(muzero_custom_policy, selector=ExPropKullbackLeibler()),
-    "squared_hellinger": functools.partial(muzero_custom_policy, selector=SquaredHellinger()),
+    "KL_variational": functools.partial(
+        muzero_custom_policy, selector=VariationalKullbackLeibler()
+    ),
+    "KL_ex_prop": functools.partial(
+        muzero_custom_policy, selector=ExPropKullbackLeibler()
+    ),
+    "squared_hellinger": functools.partial(
+        muzero_custom_policy, selector=SquaredHellinger()
+    ),
 }
 
 
@@ -72,12 +76,12 @@ class Timestep:
         self.reward = reward
 
 
-
 @jax.jit
 def env_step(state, action):
     """A single step in the environment."""
     next_state, next_timestep = env.step(state, action)
     return next_state, next_timestep
+
 
 def ep_loss_reward(timestep):
     """Reward transformation for the environment."""
@@ -124,7 +128,9 @@ def get_actions(agent, state, timestep, subkey):
     policy_output = policy(
         params=agent,
         rng_key=subkey,
-        root=jax.vmap(root_fn, (None, None, 0))(state, timestep, jnp.ones(1)),  # params["num_steps"])),
+        root=jax.vmap(root_fn, (None, None, 0))(
+            state, timestep, jnp.ones(1)
+        ),  # params["num_steps"])),
         recurrent_fn=jax.vmap(recurrent_fn, (None, None, 0, 0)),
         num_simulations=params["num_simulations"],
         max_depth=params["max_tree_depth"],
@@ -153,22 +159,29 @@ def step_fn(agent, state_timestep, subkey):
 
     state, timestep = env_step(state, best_action)
     q_value = actions.search_tree.summary().qvalues[
-      actions.search_tree.ROOT_INDEX, best_action]
+        actions.search_tree.ROOT_INDEX, best_action
+    ]
 
-    #weights = jax.nn.one_hot(best_action, params["num_actions"])
-    #print(best_action)
-    #print(q_value)
+    # weights = jax.nn.one_hot(best_action, params["num_actions"])
+    # print(best_action)
+    # print(q_value)
     return (state, timestep), (timestep, actions.action_weights[0], q_value)
+
 
 def run_n_steps(state, timestep, subkey, agent, n):
     random_keys = jax.random.split(subkey, n)
     partial_step_fn = functools.partial(step_fn, agent)
-    (next_ep_state, next_ep_timestep), (cum_timestep, actions, q_values) = jax.lax.scan(partial_step_fn, (state, timestep), random_keys)
+    (next_ep_state, next_ep_timestep), (cum_timestep, actions, q_values) = jax.lax.scan(
+        partial_step_fn, (state, timestep), random_keys
+    )
     return cum_timestep, actions, q_values, next_ep_state, next_ep_timestep
+
 
 def gather_data_new(state, timestep, subkey):
     keys = jax.random.split(subkey, params["num_batches"])
-    timestep, actions, q_values, next_ep_state, next_ep_timestep = jax.vmap(run_n_steps, in_axes=(0, 0, 0, None, None))(state, timestep, keys, agent, params["num_steps"])
+    timestep, actions, q_values, next_ep_state, next_ep_timestep = jax.vmap(
+        run_n_steps, in_axes=(0, 0, 0, None, None)
+    )(state, timestep, keys, agent, params["num_steps"])
 
     return timestep, actions, q_values, next_ep_state, next_ep_timestep
 
@@ -176,13 +189,15 @@ def gather_data_new(state, timestep, subkey):
 def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_arr):
     results_array = []
 
-    for rewards, actions, q_values, states in zip(rewards_arr, action_weights_arr, q_values_arr, states_arr):
+    for rewards, actions, q_values, states in zip(
+        rewards_arr, action_weights_arr, q_values_arr, states_arr
+    ):
         # TODO - transform the value here?
 
         # steptypes = timestep.step_type[batch_num]
         # timesteps = Timestep(step_type=steptypes, reward=rewards)
         # rewards = ep_loss_reward(timesteps)
-        #jax.debug.breakpoint()
+        # jax.debug.breakpoint()
 
         results_array.append([
             jnp.sum(rewards).item(),
@@ -191,13 +206,15 @@ def train(agent: Agent, rewards_arr, action_weights_arr, q_values_arr, states_ar
         ])
 
     avg_results_array = jnp.mean(jnp.array(results_array), axis=0)
-    print(
-        f"Loss: {str(round(avg_results_array[2], 6))}")
+    print(f"Loss: {str(round(avg_results_array[2], 6))}")
 
     return avg_results_array
 
 
 if __name__ == "__main__":
+    if params["logging"]:
+        wandb.init(project="action-selection-mcts", config=params)
+
     if params["env_name"] == "Maze-v0":
         gen = generator.RandomGenerator(*params["maze_size"])
         env = jumanji.make(params["env_name"], generator=gen)
@@ -211,7 +228,12 @@ if __name__ == "__main__":
     params["obs_spec"] = env.observation_spec
     agent = params.get("agent", Agent)(params)
 
-    buffer = fbx.make_flat_buffer(max_length=params["buffer_max_length"], min_length=params["buffer_min_length"], sample_batch_size=params['sample_size'], add_batch_size=params['num_batches'])
+    buffer = fbx.make_flat_buffer(
+        max_length=params["buffer_max_length"],
+        min_length=params["buffer_min_length"],
+        sample_batch_size=params["sample_size"],
+        add_batch_size=params["num_batches"],
+    )
     buffer = buffer.replace(
         init = jax.jit(buffer.init),
         add = jax.jit(buffer.add, donate_argnums=0),
@@ -242,7 +264,9 @@ if __name__ == "__main__":
         # get new key every episode
         key, sample_key = jax.jit(jax.random.split)(key)
 
-        timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data_new(next_ep_state, next_ep_timestep, sample_key)
+        timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data_new(
+            next_ep_state, next_ep_timestep, sample_key
+        )
 
         states = agent.get_state_from_observation(timestep.observation, True)
         avg = jnp.sum(timestep.reward).item() / params["num_batches"]
@@ -254,30 +278,44 @@ if __name__ == "__main__":
         avg_rewards.append(avg)
         avg_max_rewards.append(avg_max)
 
-        buffer_state = buffer.add(buffer_state, {
-            "q_value": q_values,
-            "actions": actions,
-            "rewards": timestep.reward, # agent.normalize_rewards(timestep.reward),
-            "states": states})
+        buffer_state = buffer.add(
+            buffer_state,
+            {
+                "q_value": q_values,
+                "actions": actions,
+                "rewards": timestep.reward,  # agent.normalize_rewards(timestep.reward),
+                "states": states,
+            },
+        )
 
         if buffer.can_sample(buffer_state):
             key, sample_key = jax.jit(jax.random.split)(key)
             # does it make sense to sample the buffer more times?
             data = buffer.sample(buffer_state, sample_key).experience.first
-            #next_data = buffer.sample(buffer_state, sample_key).experience.second
-            #jax.debug.print("{data.shape}", data=data["states"])
-            results_array = train(agent, data["rewards"], data["actions"], data["q_value"], data["states"])
+            # next_data = buffer.sample(buffer_state, sample_key).experience.second
+            # jax.debug.print("{data.shape}", data=data["states"])
+            results_array = train(
+                agent, data["rewards"], data["actions"], data["q_value"], data["states"]
+            )
             results_array = results_array.at[0].set(avg)
             all_results_array.append(results_array)
+            if wandb.run is not None:
+                wandb.log(
+                    {
+                        "Total return": results_array[0],
+                        "Max return": results_array[1],
+                        "Loss": results_array[2:],
+                    }
+                )
 
-    plot_rewards(all_results_array)
     plot_losses(all_results_array)
+    plot_rewards(all_results_array)
     print(avg_rewards)
 
-    state, timestep = env.reset(keys[0])
-    for step in range(params["num_steps"]):
-        env.render(state)
-        (new_state, new_timestep), (cum_timestep, actions, q_values) = step_fn(agent, (state, timestep), key)
-        state = new_state
-        timestep = new_timestep
+    # state, timestep = env.reset(keys[0])
+    # for step in range(params["num_steps"]):
+    #     env.render(state)
+    #     (new_state, new_timestep), (cum_timestep, actions, q_values) = step_fn(agent, (state, timestep), key)
+    #     state = new_state
+    #     timestep = new_timestep
 

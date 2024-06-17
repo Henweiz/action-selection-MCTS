@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import wandb
 def plot_losses(all_results_array):
 
     # Assuming all_results_array is a numpy array
@@ -8,16 +9,20 @@ def plot_losses(all_results_array):
     fig, ax1 = plt.subplots()
 
     # Plot the Total Return on the left y-axis
-    ax1.plot(all_results_array[:, 2], label="Value Loss", color='b')
     ax1.set_xlabel('Episode')
-    ax1.set_ylabel('Value Loss', color='b')
     ax1.tick_params(axis='y', labelcolor='b')
+    if all_results_array.shape[1] == 3: #Single, combined loss
+        ax1.plot(all_results_array[:, 2], label="Loss", color='b')
+        ax1.set_ylabel('Loss', color='b')
+    else: #Separate value and policy loss
+        ax1.set_ylabel('Value Loss', color='b')
+        ax1.plot(all_results_array[:, 2], label="Value Loss", color='b')
 
-    # Create a second y-axis sharing the same x-axis
-    ax2 = ax1.twinx()
-    ax2.plot(all_results_array[:, 3], label="Policy Loss", color='r')
-    ax2.set_ylabel('Policy Loss', color='r')
-    ax2.tick_params(axis='y', labelcolor='r')
+        # Create a second y-axis sharing the same x-axis
+        ax2 = ax1.twinx()
+        ax2.plot(all_results_array[:, 3], label="Policy Loss", color='r')
+        ax2.set_ylabel('Policy Loss', color='r')
+        ax2.tick_params(axis='y', labelcolor='r')
 
     ax1.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
@@ -25,6 +30,10 @@ def plot_losses(all_results_array):
     fig.legend(loc="upper right", bbox_to_anchor=(1, 1), bbox_transform=ax1.transAxes)
 
     plt.show()
+    if wandb.run is not None:
+        plot = wandb.Image(fig)
+        wandb.log({"Loss": plot})
+        plt.clf()
 
 def plot_rewards(all_results_array):
     # Assuming all_results_array is a numpy array
@@ -50,3 +59,7 @@ def plot_rewards(all_results_array):
     fig.legend(loc="upper right", bbox_to_anchor=(1, 1), bbox_transform=ax1.transAxes)
 
     plt.show()
+    if wandb.run is not None:
+        plot = wandb.Image(fig)
+        wandb.log({"Returns": plot})
+        plt.clf()

@@ -6,3 +6,8 @@ agent
 jumanji
 mctx
 rlax
+wandb
+chex
+numpy
+matplotlib
+plotly
