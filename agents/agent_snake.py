@@ -3,10 +3,10 @@ from agents.agent import Agent
 import jax
 import jax.numpy as jnp
 import optax
-from networks.network_2048 import PolicyValueNetwork
+from networks.network_snake import PolicyValueNetwork
 from flax.training import train_state
 
-class AgentGrid(Agent): 
+class AgentSnake(Agent): 
     def __init__(self, params):
         params["network"] = PolicyValueNetwork
         super().__init__(params)

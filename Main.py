@@ -6,7 +6,7 @@ from jax import random
 import logging
 from agents.agent import Agent
 from agents.agent_2048 import Agent2048
-from agents.agent_grid import AgentGrid
+from agents.agent_snake import AgentSnake
 from agents.agent_maze import AgentMaze
 import jumanji
 from jumanji.wrappers import VmapAutoResetWrapper, AutoResetWrapper
@@ -27,25 +27,25 @@ import wandb_logging
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
-    "env_name": "Game2048-v1",
+    "env_name": "Snake-v1",
     "maze_size": (5, 5),
     "policy": "default",
-    "agent": Agent2048,
+    "agent": AgentSnake,
     "num_channels": 32,
     "seed": 42,
-    "lr": 0.005,  # 0.00003
-    "num_episodes": 15,
-    "num_steps": 100,
+    "lr": 3e-4,  # 0.00003
+    "num_episodes": 1500,
+    "num_steps": 200,
     "num_actions": 4,
     "obs_spec": Optional,
     "buffer_max_length": 10000,
     "buffer_min_length": 2,
-    "num_batches": 4,
-    "sample_size": 16,
-    "num_simulations": 2,  # 16,
-    "max_tree_depth": 2,  # 12,
-    "discount": 1,
-    "logging": True,
+    "num_batches": 32,
+    "sample_size": 64,
+    "num_simulations": 16,  # 16,
+    "max_tree_depth": 12,  # 12,
+    "discount": 0.997,
+    "logging": False,
     "run_in_kaggle": False,
 }
 
@@ -231,12 +231,20 @@ if __name__ == "__main__":
     )
 
     # Specify buffer format
-    fake_timestep = {
-        "q_value": jnp.zeros((params['num_steps'])),
-        "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-        "rewards": jnp.zeros((params['num_steps']), dtype=jnp.float32),
-        "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.int32)
-    }
+    if params['env_name'] == "Snake-v1":
+        fake_timestep = {
+            "q_value": jnp.zeros((params['num_steps'])),
+            "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
+            "rewards": jnp.zeros((params['num_steps']), dtype=jnp.float32),
+            "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.float32)
+        }
+    else:
+        fake_timestep = {
+            "q_value": jnp.zeros((params['num_steps'])),
+            "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
+            "rewards": jnp.zeros((params['num_steps']), dtype=jnp.float32),
+            "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.int32)
+        }
     buffer_state = buffer.init(fake_timestep)
 
     # Initialize the random keys
