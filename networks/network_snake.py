@@ -1,21 +1,16 @@
-import jax
 import jax.numpy as jnp
 from flax import linen as nn
-from jax import grad, jit
-from flax.training import train_state
-import optax
-    
-class PolicyValueNetwork(nn.Module):
 
+
+class PolicyValueNetwork(nn.Module):
     num_actions: int
     num_channels: int
-    
 
     @nn.compact
     def __call__(self, x):
         # Conv Layers + MLP Layer.
         k_size = (2, 2)
-        x = nn.Conv(features=self.num_channels, kernel_size=k_size, strides=(2,2))(x)
+        x = nn.Conv(features=self.num_channels, kernel_size=k_size, strides=(2, 2))(x)
         x = nn.leaky_relu(x)
         x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)

@@ -1,4 +1,8 @@
+import functools
+from functools import partial
 from typing import Optional
+
+import flashbax as fbx
 import jax
 import jax.numpy as jnp
 from jax import random
@@ -9,44 +13,43 @@ from agents.agent_2048 import Agent2048
 from agents.agent_snake import AgentSnake
 from agents.agent_maze import AgentMaze
 import jumanji
-from jumanji.wrappers import VmapAutoResetWrapper, AutoResetWrapper
-from jumanji.types import StepType
 import mctx
-import functools
-from functools import partial
-import flashbax as fbx
-
 from jumanji.environments.routing.maze import generator
+from jumanji.types import StepType
+from jumanji.wrappers import AutoResetWrapper
 
+import wandb
 from action_selection_rules.solve_norm import ExPropKullbackLeibler, SquaredHellinger
 from action_selection_rules.solve_trust_region import VariationalKullbackLeibler
+from agents.agent import Agent
+from agents.agent_2048 import Agent2048
 from tree_policies import muzero_custom_policy
-import wandb
-
-import wandb_logging
+from wandb_logging import init_wandb, log_rewards
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
-    "env_name": "Snake-v1",
+    "env_name": "Game2048-v1",
     "maze_size": (5, 5),
     "policy": "default",
-    "agent": AgentSnake,
+    "agent": Agent2048,
     "num_channels": 32,
     "seed": 42,
-    "lr": 3e-4,  # 0.00003
-    "num_episodes": 1500,
-    "num_steps": 200,
+    "lr": 2e-4,  # 0.00003
+    "num_episodes": 15,
+    "num_steps": 20,
     "num_actions": 4,
     "obs_spec": Optional,
     "buffer_max_length": 10000,
     "buffer_min_length": 2,
-    "num_batches": 32,
-    "sample_size": 64,
-    "num_simulations": 16,  # 16,
-    "max_tree_depth": 12,  # 12,
-    "discount": 0.997,
+    "num_batches": 4,
+    "sample_size": 16,
+    "num_simulations": 4,  # 16,
+    "max_tree_depth": 3,  # 12,
+    "discount": 0.99,
     "logging": False,
     "run_in_kaggle": False,
+    "checkpoint_dir": r'C:\Users\iejemjiel\Documents\TUDM\IDMP\Codebase\checkpoints',
+    "checkpoint_interval": 2,
 }
 
 policy_dict = {
@@ -197,7 +200,7 @@ if __name__ == "__main__":
 
     # Initialize wandb
     if params["logging"]:
-        wandb_logging.init_wandb(params)
+        init_wandb(params)
 
     # Initialize the environment
     if params["env_name"] == "Maze-v0":
@@ -255,7 +258,8 @@ if __name__ == "__main__":
     # Get the initial state and timestep
     next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
 
-    for episode in range(params["num_episodes"]):
+    for episode in range(1, params["num_episodes"]+1):
+
         # Get new key every episode
         key, sample_key = jax.jit(jax.random.split)(key)
 
@@ -286,7 +290,11 @@ if __name__ == "__main__":
             loss = None
 
         if params["logging"]:
-            wandb_logging.log_rewards(timestep.reward, loss, episode, params)
+            log_rewards(timestep.reward, loss, episode, params)
+
+        if episode % params["checkpoint_interval"] == 0:
+            print(f"Saving checkpoint for episode {episode}")
+            agent.save(params["checkpoint_dir"], episode)
 
     if params["logging"]:
         wandb.finish()

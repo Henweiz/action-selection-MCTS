@@ -1,13 +1,13 @@
 import jax
 import jax.numpy as jnp
 import optax
-from networks.network_2048 import PolicyValueNetwork
-from flax.training import train_state
+from networks.network_2048 import PolicyValueNetwork_2048
+from flax.training import train_state, checkpoints
 
 class Agent: 
     def __init__(self, params):
 
-        self.network = params.get("network", PolicyValueNetwork)(num_actions=params["num_actions"], num_channels=params["num_channels"])
+        self.network = params.get("network", PolicyValueNetwork_2048)(num_actions=params["num_actions"], num_channels=params["num_channels"])
         self.optimizer = optax.adam(params['lr'])
         self.input_shape = self.input_shape_fn(params["obs_spec"])
 
@@ -33,6 +33,9 @@ class Agent:
 
     def reverse_normalize_rewards(self, r):
         return r
+
+    def save(self, path, step):
+       checkpoints.save_checkpoint(target=self.train_state, ckpt_dir=path, step=step)
     
     def loss_fn(self, params, states, actions, returns):
         # KL Loss for policy part of the network:

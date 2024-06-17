@@ -6,7 +6,7 @@ from flax.training import train_state
 import optax
 
 
-class PolicyValueNetwork(nn.Module):
+class PolicyValueNetwork_2048(nn.Module):
     num_actions: int
     num_channels: int
 

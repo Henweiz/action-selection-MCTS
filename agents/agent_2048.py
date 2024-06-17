@@ -1,10 +1,10 @@
-from networks.network_2048 import PolicyValueNetwork
+from networks.network_2048 import PolicyValueNetwork_2048
 from agents.agent import Agent
 import jax.numpy as jnp
 
 class Agent2048(Agent): 
     def __init__(self, params):
-        params["network"] = PolicyValueNetwork
+        params["network"] = PolicyValueNetwork_2048
         super().__init__(params)
 
 
