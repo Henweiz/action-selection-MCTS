@@ -168,14 +168,16 @@ def step_fn(agent, state_timestep, subkey):
 
 def run_n_steps(state, timestep, subkey, agent, n):
     random_keys = jax.random.split(subkey, n)
+    # partial function to be able to send the agent as an argument
     partial_step_fn = functools.partial(step_fn, agent)
+    # scan over the n steps
     (next_ep_state, next_ep_timestep), (cum_timestep, actions, q_values) = jax.lax.scan(
         partial_step_fn, (state, timestep), random_keys
     )
     return cum_timestep, actions, q_values, next_ep_state, next_ep_timestep
 
 
-def gather_data_new(state, timestep, subkey):
+def gather_data(state, timestep, subkey):
     keys = jax.random.split(subkey, params["num_batches"])
     timestep, actions, q_values, next_ep_state, next_ep_timestep = jax.vmap(
         run_n_steps, in_axes=(0, 0, 0, None, None)
@@ -250,7 +252,7 @@ if __name__ == "__main__":
         key, sample_key = jax.jit(jax.random.split)(key)
 
         # Gather data
-        timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data_new(
+        timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data(
             next_ep_state, next_ep_timestep, sample_key
         )
 
