@@ -35,7 +35,7 @@ class Agent:
         return r
 
     def save(self, path, step):
-       checkpoints.save_checkpoint(target=self.train_state, ckpt_dir=path, step=step)
+       checkpoints.save_checkpoint(target=self.train_state, ckpt_dir=path, step=step, overwrite=True)
     
     def loss_fn(self, params, states, actions, returns):
         # KL Loss for policy part of the network:
