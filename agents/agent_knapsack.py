@@ -1,14 +1,33 @@
 import jax.numpy as jnp
-from networks.knapsack_networks import KnapsackPolicyNetwork, KnapsackValueNetwork
 from agents.agent import Agent
+from networks.network_knapsack import forward_fn
+import haiku.experimental.flax as hkflax
+import haiku as hk
+import jax
+from flax.training import train_state
+import optax
 
 class AgentKnapsack(Agent):
-    def __init__(self, params, env):
-        params["policy_network"] = KnapsackPolicyNetwork
-        params["value_network"] = KnapsackValueNetwork
-        super().__init__(params, env)
+    def __init__(self, params):
+        self.network = hkflax.Module(hk.transform(forward_fn))
+        self.optimizer = optax.adam(params['lr'])
+        self.input_shape = self.input_shape_fn(params["obs_spec"])
 
-    def input_shape(self, observation_spec):
+        self.key = jax.random.PRNGKey(params['seed'])
+        
+        self.train_state = train_state.TrainState.create(
+            apply_fn=self.network.apply,
+            params=self.network.init(self.key, jnp.ones((1, *self.input_shape))),
+            tx=self.optimizer
+        )
+
+        self.net_apply_fn = jax.jit(self.train_state.apply_fn)
+        self.grad_fn = jax.value_and_grad(self.loss_fn)
+    
+    def mask_actions(self, actions, mask):
+        return actions
+
+    def input_shape_fn(self, observation_spec):
         return (4, *observation_spec.weights.shape)
 
     def get_state_from_observation(self, observation, batched=True):
