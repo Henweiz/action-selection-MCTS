@@ -24,8 +24,8 @@ class AgentKnapsack(Agent):
         self.net_apply_fn = jax.jit(self.train_state.apply_fn)
         self.grad_fn = jax.value_and_grad(self.loss_fn)
     
-    def mask_actions(self, actions, mask):
-        return actions
+    # def mask_actions(self, actions, mask):
+    #     return actions
 
     def input_shape_fn(self, observation_spec):
         return (4, *observation_spec.weights.shape)

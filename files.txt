@@ -1,0 +1,21 @@
+action_selection_rules/
+    action_selection.py
+    interface.py
+    mixins.py
+    solve_norm.py
+    solve_trust_region.py
+    solver.py
+agents/
+    agent.py
+    agent_2048.py
+    agent_knapsack.py
+    agent_maze.py
+networks/
+    cnn.py
+    network_knapsack.py
+    network_2048.py
+    network_snake.py
+Main.py
+plotting.py
+tree_policies.py
+wandb_logging.py

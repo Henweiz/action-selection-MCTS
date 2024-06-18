@@ -40,14 +40,14 @@ params = {
     "num_steps": 100,
     "num_actions": 4,
     "obs_spec": Optional,
-    "buffer_max_length": 10000,
+    "buffer_max_length": 20000,
     "buffer_min_length": 16,
     "num_batches": 64,
-    "sample_size": 16,
-    "num_simulations": 16,  # 16,
-    "max_tree_depth": 16,  # 12,
+    "sample_size": 256,
+    "num_simulations": 12,  # 16,
+    "max_tree_depth": 4,  # 12,
     "discount": 1,
-    "logging": True,
+    "logging": False,
     "run_in_kaggle": False,
     "checkpoint_dir": r'/home/iwitko/repos/action-selection-MCTS/checkpoints',
     "checkpoint_interval": 5,
@@ -166,6 +166,7 @@ def step_fn(agent, state_timestep, subkey):
     q_value = actions.search_tree.summary().qvalues[
         actions.search_tree.ROOT_INDEX, best_action
     ]
+    # timestep.extra["game_reward"]
 
     return (state, timestep), (timestep, actions.action_weights[0], q_value)
 
@@ -186,6 +187,8 @@ def gather_data(state, timestep, subkey):
     timestep, actions, q_values, next_ep_state, next_ep_timestep = jax.vmap(
         run_n_steps, in_axes=(0, 0, 0, None, None)
     )(state, timestep, keys, agent, params["num_steps"])
+    # print(timestep.reward.shape)
+    # print(timestep.step_type.shape)
 
     return timestep, actions, q_values, next_ep_state, next_ep_timestep
 
@@ -235,7 +238,14 @@ if __name__ == "__main__":
     )
 
     # Specify buffer format
-    if params['env_name'] in ["Snake-v1", "Knapsack-v1"]:
+    if params['env_name'] == "Knapsack-v1":
+        fake_timestep = {
+            "q_value": jnp.zeros((params['num_steps'])),
+            "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
+            "rewards": jnp.zeros((1), dtype=jnp.float32),
+            "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.float32)
+        }
+    elif params['env_name'] == "Snake-v1":
         fake_timestep = {
             "q_value": jnp.zeros((params['num_steps'])),
             "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
@@ -271,6 +281,7 @@ if __name__ == "__main__":
         # Get state in the correct format given environment
         states = agent.get_state_from_observation(timestep.observation, True)
 
+
         # Add data to buffer
         buffer_state = buffer.add(
             buffer_state,
@@ -281,6 +292,8 @@ if __name__ == "__main__":
                 "states": states,
             },
         )
+        # print(jnp.where(timestep.step_type == 2).shape)
+
 
         if buffer.can_sample(buffer_state):
             key, sample_key = jax.jit(jax.random.split)(key)
@@ -289,8 +302,21 @@ if __name__ == "__main__":
         else:
             loss = None
 
+        # end_steps = (timestep.step_type == 2).astype(jnp.int32)
+        # print(end_steps.shape)
+        # print(end_steps_count.shape)
+        print(per_batch_per_game_rewards)
+
         if params["logging"]:
-            log_rewards(timestep.reward, loss, episode, params)
+            if params["env_name"] == "Knapsack-v1":
+                end_steps = jnp.where(timestep.step_type == 2, 1., 0.)
+                end_steps_count = jnp.sum(end_steps, axis=-1)
+                per_batch_total_rewards = jnp.sum(timestep.reward, axis=-1)
+                per_batch_per_game_rewards = jnp.divide(per_batch_total_rewards, end_steps_count)
+                log_rewards(per_batch_per_game_rewards, loss, episode, params)
+            else:
+                log_rewards(timestep.reward, loss, episode, params)
+                
 
         if episode % params["checkpoint_interval"] == 0:
             print(f"Saving checkpoint for episode {episode}")
