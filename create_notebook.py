@@ -31,9 +31,9 @@ def create_notebook_from_files(filepaths):
                 continue
             if "      action_selection.custom_action_selection,\n" in line:
                 line = "      custom_action_selection,\n"
-            if "checkpoint_dir" in line:
+            if "\"checkpoint_dir\":" in line:
                 line = "    \"checkpoint_dir\": r'/kaggle/working',\n"
-            if  "run_in_kaggle" in line:
+            if  "\"run_in_kaggle\": False" in line:
                 line = "    \"run_in_kaggle\": True,\n"
             match = import_pattern.match(line)
             if match:
