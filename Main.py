@@ -6,6 +6,7 @@ import flashbax as fbx
 import jax
 import jax.numpy as jnp
 from jax import random
+from flax.training import checkpoints
 
 import logging
 from agents.agent import Agent
@@ -41,7 +42,7 @@ params = {
     "num_actions": 4,
     "obs_spec": Optional,
     "buffer_max_length": 20000,
-    "buffer_min_length": 16,
+    "buffer_min_length": 256,
     "num_batches": 64,
     "sample_size": 256,
     "num_simulations": 12,  # 16,
@@ -49,7 +50,7 @@ params = {
     "discount": 1,
     "logging": True,
     "run_in_kaggle": False,
-    "checkpoint_dir": r'/home/iwitko/repos/action-selection-MCTS/checkpoints',
+    "checkpoint_dir": r"/home/iwitko/repos/action-selection-MCTS/checkpoints",
     "checkpoint_interval": 5,
 }
 
@@ -238,14 +239,14 @@ if __name__ == "__main__":
     )
 
     # Specify buffer format
-    if params['env_name'] == "Knapsack-v1":
+    if params["env_name"] == "Knapsack-v1":
         fake_timestep = {
             "q_value": jnp.zeros((params['num_steps'])),
             "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
             "rewards": jnp.zeros((1), dtype=jnp.float32),
             "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.float32)
         }
-    elif params['env_name'] == "Snake-v1":
+    elif params["env_name"] == "Snake-v1":
         fake_timestep = {
             "q_value": jnp.zeros((params['num_steps'])),
             "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
@@ -269,7 +270,7 @@ if __name__ == "__main__":
     # Get the initial state and timestep
     next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
 
-    for episode in range(1, params["num_episodes"]+1):
+    for episode in range(1, params["num_episodes"] + 1):
 
         # Get new key every episode
         key, sample_key = jax.jit(jax.random.split)(key)
@@ -281,6 +282,15 @@ if __name__ == "__main__":
         # Get state in the correct format given environment
         states = agent.get_state_from_observation(timestep.observation, True)
 
+        logged_rewards = timestep.reward
+        if params["env_name"] == "Knapsack-v1":
+            end_steps = jnp.where(timestep.step_type == 2, 1.0, 0.0)
+            end_steps_count = jnp.sum(end_steps, axis=-1)
+            per_batch_total_rewards = jnp.sum(timestep.reward, axis=-1)
+            per_batch_per_game_rewards = jnp.divide(
+                per_batch_total_rewards, end_steps_count
+            )
+            logged_rewards = jnp.expand_dims(per_batch_per_game_rewards, axis=-1)
 
         # Add data to buffer
         buffer_state = buffer.add(
@@ -288,12 +298,10 @@ if __name__ == "__main__":
             {
                 "q_value": q_values,
                 "actions": actions,
-                "rewards": timestep.reward,  # agent.normalize_rewards(timestep.reward),
+                "rewards": logged_rewards,  # agent.normalize_rewards(timestep.reward),
                 "states": states,
             },
         )
-        # print(jnp.where(timestep.step_type == 2).shape)
-
 
         if buffer.can_sample(buffer_state):
             key, sample_key = jax.jit(jax.random.split)(key)
@@ -302,21 +310,8 @@ if __name__ == "__main__":
         else:
             loss = None
 
-        # end_steps = (timestep.step_type == 2).astype(jnp.int32)
-        # print(end_steps.shape)
-        # print(end_steps_count.shape)
-        print(per_batch_per_game_rewards)
-
         if params["logging"]:
-            if params["env_name"] == "Knapsack-v1":
-                end_steps = jnp.where(timestep.step_type == 2, 1., 0.)
-                end_steps_count = jnp.sum(end_steps, axis=-1)
-                per_batch_total_rewards = jnp.sum(timestep.reward, axis=-1)
-                per_batch_per_game_rewards = jnp.divide(per_batch_total_rewards, end_steps_count)
-                log_rewards(per_batch_per_game_rewards, loss, episode, params)
-            else:
-                log_rewards(timestep.reward, loss, episode, params)
-                
+            log_rewards(logged_rewards, loss, episode, params)
 
         if episode % params["checkpoint_interval"] == 0:
             print(f"Saving checkpoint for episode {episode}")
