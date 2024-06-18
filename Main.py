@@ -47,7 +47,7 @@ params = {
     "num_simulations": 12,  # 16,
     "max_tree_depth": 4,  # 12,
     "discount": 1,
-    "logging": False,
+    "logging": True,
     "run_in_kaggle": False,
     "checkpoint_dir": r'/home/iwitko/repos/action-selection-MCTS/checkpoints',
     "checkpoint_interval": 5,

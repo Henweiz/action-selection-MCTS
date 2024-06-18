@@ -31,7 +31,10 @@ def create_notebook_from_files(filepaths):
                 continue
             if "      action_selection.custom_action_selection,\n" in line:
                 line = "      custom_action_selection,\n"
-
+            if "checkpoint_dir" in line:
+                line = "    \"checkpoint_dir\": r'/kaggle/working',\n"
+            if  "run_in_kaggle" in line:
+                line = "    \"run_in_kaggle\": True,\n"
             match = import_pattern.match(line)
             if match:
                 # Check if the import is local by examining all parts of the import path
@@ -52,7 +55,7 @@ def create_notebook_from_files(filepaths):
     nb['cells'] = cells
 
     # first cell should be pip intalls
-    pip_installs = nbf.v4.new_code_cell("!pip install mctx\n!pip install jumanji\n!pip install flashbax")
+    pip_installs = nbf.v4.new_code_cell("!pip install mctx\n!pip install jumanji\n!pip install flashbax\n!pip install dm-haiku")
     cells.insert(0, pip_installs)
 
     # Write the notebook to a file
