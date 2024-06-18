@@ -36,8 +36,8 @@ params = {
     "num_channels": 32,
     "seed": 42,
     "lr": 2e-4,  # 0.00003
-    "num_episodes": 1000,
-    "num_steps": 100,
+    "num_episodes": 2000,
+    "num_steps": 200,
     "num_actions": 4,
     "obs_spec": Optional,
     "buffer_max_length": 20000,
