@@ -12,6 +12,7 @@ from agents.agent import Agent
 from agents.agent_2048 import Agent2048
 from agents.agent_snake import AgentSnake
 from agents.agent_maze import AgentMaze
+from agents.agent_knapsack import AgentKnapsack
 import jumanji
 import mctx
 from jumanji.environments.routing.maze import generator
@@ -28,10 +29,10 @@ from wandb_logging import init_wandb, log_rewards
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
-    "env_name": "Game2048-v1",
+    "env_name": "Knapsack-v1",
     "maze_size": (5, 5),
     "policy": "default",
-    "agent": Agent2048,
+    "agent": AgentKnapsack,
     "num_channels": 32,
     "seed": 42,
     "lr": 2e-4,  # 0.00003
@@ -277,7 +278,7 @@ if __name__ == "__main__":
     )
 
     # Specify buffer format
-    if params['env_name'] == "Snake-v1":
+    if params['env_name'] in ["Snake-v1", "Knapsack-v1"]:
         fake_timestep = {
             "q_value": jnp.zeros((params['num_steps'])),
             "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
@@ -306,7 +307,6 @@ if __name__ == "__main__":
 
         # Get new key every episode
         key, sample_key = jax.jit(jax.random.split)(key)
-
         # Gather data
         timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data(
             next_ep_state, next_ep_timestep, sample_key
