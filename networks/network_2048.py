@@ -19,7 +19,7 @@ class PolicyValueNetwork_2048(nn.Module):
         x = jnp.reshape(x, (x.shape[0], -1))  # Flatten
 
         # Policy Layers.
-        actions = nn.Dense(128)(x)
+        actions = nn.Dense(128)(x) # TODO try value norm
         actions = nn.leaky_relu(actions)
         actions = nn.Dense(128)(actions)
         actions = nn.leaky_relu(actions)
