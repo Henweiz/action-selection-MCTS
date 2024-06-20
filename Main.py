@@ -3,9 +3,11 @@ from functools import partial
 from typing import Optional
 
 import flashbax as fbx
+from flashbax.vault import Vault
 import jax
 import jax.numpy as jnp
 from jax import random
+from flax.training import checkpoints
 
 import logging
 from agents.agent import Agent
@@ -13,6 +15,7 @@ from agents.agent_2048 import Agent2048
 from agents.agent_snake import AgentSnake
 from agents.agent_maze import AgentMaze
 from agents.agent_knapsack import AgentKnapsack
+from visualize import get_max_tree_depth
 import jumanji
 import mctx
 from jumanji.environments.routing.maze import generator
@@ -36,21 +39,22 @@ params = {
     "num_channels": 32,
     "seed": 42,
     "lr": 2e-4,  # 0.00003
-    "num_episodes": 500,
-    "num_steps": 1000,
+    "num_episodes": 40,
+    "num_steps": 100,
     "num_actions": 4,
     "obs_spec": Optional,
-    "buffer_max_length": 100000, # TODO try to increase
+    "buffer_max_length": 2000,
     "buffer_min_length": 2,
-    "num_batches": 64,
-    "sample_size": 256,
-    "num_simulations": 16,  # 16,
-    "max_tree_depth": 6,  # TODO max 8, maybe 6 or 4
-    "discount": 0.99,
+    "num_batches": 8,
+    "sample_size": 64,
+    "num_simulations": 32,  # 16,
+    "max_tree_depth": 5,  # 12,
+    "discount": 1,
     "logging": True,
     "run_in_kaggle": False,
-    "checkpoint_dir": r'C:\Users\iejemjiel\Documents\TUDM\IDMP\Codebase\checkpoints',
-    "checkpoint_interval": 10000,
+    "checkpoint_dir": r"/home/iwitko/repos/action-selection-MCTS/checkpoints",
+    "checkpoint_interval": 5,
+    "load_checkpoint": False,
 }
 
 policy_dict = {
@@ -65,6 +69,10 @@ policy_dict = {
         muzero_custom_policy, selector=SquaredHellinger()
     ),
 }
+
+
+def get_checkpoint_id():
+    return f"{params['env_name']}_{params['policy']}_{params['num_simulations']}_{params['seed']}"
 
 
 class Timestep:
@@ -114,7 +122,7 @@ def recurrent_fn(agent: Agent, rng_key, action, embedding):
     return recurrent_fn_output, (new_state, new_timestep)
 
 
-def get_actions(agent, state, timestep, subkey):
+def get_actions(agent, state, timestep, subkey) -> mctx.PolicyOutput:
     """Get the actions from the MCTS"""
 
     def root_fn(state, timestep, _):
@@ -152,7 +160,6 @@ def get_actions(agent, state, timestep, subkey):
     return policy_output
 
 
-
 def get_rewards(timestep, prev_reward_arr, episode):
     rewards = []
     new_reward_arr = []
@@ -166,20 +173,26 @@ def get_rewards(timestep, prev_reward_arr, episode):
         prev_rewards = prev_reward_arr[batch_num]
 
         # go over all timesteps in the batch
-        for i, (step_type, ep_rew) in enumerate(zip(timestep.step_type[batch_num], timestep.reward[batch_num])):
+        for i, (step_type, ep_rew) in enumerate(
+            zip(timestep.step_type[batch_num], timestep.reward[batch_num])
+        ):
             # if the episode has ended, add the total reward to the rewards list
             if step_type == StepType.LAST:
                 # add the reward from the entire game and the timestep it happened
                 rew = {
                     "reward": sum(prev_rewards) + ep_rew,
                     "max_reward": max_reward,
-
                 }
                 prev_rewards = []
 
                 rewards.append(rew)
                 if params["logging"]:
-                    wandb.log(rew, step=(episode-1)*params["num_batches"]*params["num_steps"] + batch_num*params["num_steps"] + (i+1))
+                    wandb.log(
+                        rew,
+                        step=(episode - 1) * params["num_batches"] * params["num_steps"]
+                        + batch_num * params["num_steps"]
+                        + (i + 1),
+                    )
             else:
                 prev_rewards.append(ep_rew)
 
@@ -187,8 +200,12 @@ def get_rewards(timestep, prev_reward_arr, episode):
 
     avg_reward = sum([r["reward"] for r in rewards]) / max(1, len(rewards))
 
-    steps = (episode-1)*params["num_batches"]*params["num_steps"] + params["num_steps"]
-    print(f"Episode {episode}, Average reward: {str(round(avg_reward, 1))}, Max Reward: {max_reward}, Steps: {steps} / {params['num_episodes']*params['num_batches']*params['num_steps']}")
+    steps = (episode - 1) * params["num_batches"] * params["num_steps"] + params[
+        "num_steps"
+    ]
+    print(
+        f"Episode {episode}, Average reward: {str(round(avg_reward, 1))}, Max Reward: {max_reward}, Steps: {steps} / {params['num_episodes']*params['num_batches']*params['num_steps']}"
+    )
 
     return new_reward_arr
 
@@ -208,8 +225,14 @@ def step_fn(agent, state_timestep, subkey):
     q_value = actions.search_tree.summary().qvalues[
         actions.search_tree.ROOT_INDEX, best_action
     ]
+    # timestep.extra["game_reward"]
 
-    return (state, timestep), (timestep, actions.action_weights[0], q_value)
+    return (state, timestep), (
+        timestep,
+        actions.action_weights[0],
+        q_value,
+        actions.search_tree,
+    )
 
 
 def run_n_steps(state, timestep, subkey, agent, n):
@@ -217,27 +240,32 @@ def run_n_steps(state, timestep, subkey, agent, n):
     # partial function to be able to send the agent as an argument
     partial_step_fn = functools.partial(step_fn, agent)
     # scan over the n steps
-    (next_ep_state, next_ep_timestep), (cum_timestep, actions, q_values) = jax.lax.scan(
-        partial_step_fn, (state, timestep), random_keys
+    (next_ep_state, next_ep_timestep), (cum_timestep, actions, q_values, trees) = (
+        jax.lax.scan(partial_step_fn, (state, timestep), random_keys)
     )
-    return cum_timestep, actions, q_values, next_ep_state, next_ep_timestep
+    return cum_timestep, actions, q_values, next_ep_state, next_ep_timestep, trees
 
 
 def gather_data(state, timestep, subkey):
     keys = jax.random.split(subkey, params["num_batches"])
-    timestep, actions, q_values, next_ep_state, next_ep_timestep = jax.vmap(
+    timestep, actions, q_values, next_ep_state, next_ep_timestep, trees = jax.vmap(
         run_n_steps, in_axes=(0, 0, 0, None, None)
     )(state, timestep, keys, agent, params["num_steps"])
+    # print(timestep.reward.shape)
+    # print(timestep.step_type.shape)
 
-    return timestep, actions, q_values, next_ep_state, next_ep_timestep
+    return timestep, actions, q_values, next_ep_state, next_ep_timestep, trees
 
 
 def train(agent: Agent, action_weights_arr, q_values_arr, states_arr, episode):
-    losses = [agent.update_fn(states, actions, q_values, episode)
-              for actions, q_values, states in zip(action_weights_arr, q_values_arr, states_arr)]
+    losses = [
+        agent.update_fn(states, actions, q_values, episode)
+        for actions, q_values, states in zip(
+            action_weights_arr, q_values_arr, states_arr
+        )
+    ]
 
     return jnp.mean(jnp.array(losses), axis=0)
-
 
 
 if __name__ == "__main__":
@@ -261,38 +289,51 @@ if __name__ == "__main__":
     params["obs_spec"] = env.observation_spec
     agent = params.get("agent", Agent)(params)
 
-    # Specify buffer parameters
-    buffer = fbx.make_flat_buffer(
-        max_length=params["buffer_max_length"],
-        min_length=params["buffer_min_length"],
-        sample_batch_size=params["sample_size"],
-        add_batch_size=params["num_batches"],
-    )
-
-    # Jit the buffer functions
-    buffer = buffer.replace(
-        init=jax.jit(buffer.init),
-        add=jax.jit(buffer.add, donate_argnums=0),
-        sample=jax.jit(buffer.sample),
-        can_sample=jax.jit(buffer.can_sample),
-    )
-
-    # Specify buffer format
-    if params['env_name'] in ["Snake-v1", "Knapsack-v1"]:
-        fake_timestep = {
-            "q_value": jnp.zeros((params['num_steps'])),
-            "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-            "rewards": jnp.zeros((params['num_steps']), dtype=jnp.float32),
-            "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.float32)
-        }
+    vault = None
+    buffer = None
+    if params["load_checkpoint"]:
+        vault = Vault(
+            "buffer_checkpoint",
+            None,
+            vault_uid=get_checkpoint_id(),
+            rel_dir="checkpoints",
+        )
+        buffer = vault.read(params["buffer_max_length"])
+        agent.load(params["checkpoint_dir"], get_checkpoint_id())
     else:
-        fake_timestep = {
-            "q_value": jnp.zeros((params['num_steps'])),
-            "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-            "rewards": jnp.zeros((params['num_steps']), dtype=jnp.float32),
-            "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.int32)
-        }
-    buffer_state = buffer.init(fake_timestep)
+        # Specify buffer parameters
+        buffer = fbx.make_flat_buffer(
+            max_length=params["buffer_max_length"],
+            min_length=params["buffer_min_length"],
+            sample_batch_size=params["sample_size"],
+            add_batch_size=params["num_batches"],
+        )
+
+        # Jit the buffer functions
+        buffer = buffer.replace(
+            init=jax.jit(buffer.init),
+            add=jax.jit(buffer.add, donate_argnums=0),
+            sample=jax.jit(buffer.sample),
+            can_sample=jax.jit(buffer.can_sample),
+        )
+
+        # Specify buffer format
+        if params["env_name"] in ["Snake-v1", "Knapsack-v1"]:
+            fake_timestep = {
+                "q_value": jnp.zeros((params["num_steps"])),
+                "actions": jnp.zeros((params["num_steps"], params["num_actions"]), dtype=jnp.float32),
+                "states": jnp.zeros((params["num_steps"], *agent.input_shape), dtype=jnp.float32),
+            }
+        else:
+            fake_timestep = {
+                "q_value": jnp.zeros((params["num_steps"])),
+                "actions": jnp.zeros((params["num_steps"], params["num_actions"]), dtype=jnp.float32),
+                "states": jnp.zeros((params["num_steps"], *agent.input_shape), dtype=jnp.int32),
+            }
+        buffer_state = buffer.init(fake_timestep)
+        vault = Vault(
+            "buffer_checkpoint", buffer_state.experience, vault_uid=get_checkpoint_id(), rel_dir="checkpoints"
+        )
 
     # Initialize the random keys
     key = jax.random.PRNGKey(params["seed"])
@@ -303,14 +344,17 @@ if __name__ == "__main__":
     next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
 
     prev_reward_arr = [[] for _ in range(params["num_batches"])]
-    for episode in range(1, params["num_episodes"]+1):
+    for episode in range(1, params["num_episodes"] + 1):
 
         # Get new key every episode
         key, sample_key = jax.jit(jax.random.split)(key)
         # Gather data
-        timestep, actions, q_values, next_ep_state, next_ep_timestep = gather_data(
-            next_ep_state, next_ep_timestep, sample_key
+        timestep, actions, q_values, next_ep_state, next_ep_timestep, trees = (
+            gather_data(next_ep_state, next_ep_timestep, sample_key)
         )
+        # get_max_tree_depth(trees)
+        # print("TREE DEPTH")
+        # print(tree_depth)
 
         prev_reward_arr = get_rewards(timestep, prev_reward_arr, episode)
 
@@ -323,25 +367,24 @@ if __name__ == "__main__":
             {
                 "q_value": q_values,
                 "actions": actions,
-                "rewards": timestep.reward,  # agent.normalize_rewards(timestep.reward),
                 "states": states,
             },
         )
+        vault.write(buffer_state)
 
         if buffer.can_sample(buffer_state):
             key, sample_key = jax.jit(jax.random.split)(key)
             data = buffer.sample(buffer_state, sample_key).experience.first
-            loss = train(agent, data["actions"], data["q_value"], data["states"], episode)
+            loss = train(
+                agent, data["actions"], data["q_value"], data["states"], episode
+            )
             agent.log_losses(episode, params)
         else:
             loss = None
 
-        # if params["logging"]:
-        #     log_rewards(rewards, loss, episode, params)
-
         if episode % params["checkpoint_interval"] == 0:
             print(f"Saving checkpoint for episode {episode}")
-            agent.save(params["checkpoint_dir"], episode)
+            agent.save(params["checkpoint_dir"], episode, get_checkpoint_id())
 
     if params["logging"]:
         wandb.finish()

@@ -38,9 +38,18 @@ class Agent:
     def reverse_normalize_rewards(self, r):
         return r
 
-    def save(self, path, step):
-       checkpoints.save_checkpoint(target=self.train_state, ckpt_dir=path, step=step)
-
+    def save(self, path, step, prefix):
+        checkpoints.save_checkpoint(
+            target=self.train_state,
+            ckpt_dir=path,
+            step=step,
+            overwrite=True,
+            prefix=prefix
+        )
+    
+    def load(self, path, prefix):
+        latest = checkpoints.latest_checkpoint(path, prefix=prefix)
+        self.train_state = checkpoints.restore_checkpoint(latest, target=self.train_state, prefix=prefix)
 
     def loss_fn(self, params, states, actions, returns, episode):
         # KL Loss for policy part of the network:
@@ -90,11 +99,12 @@ class Agent:
         return renormalized_actions, value
 
     def log_losses(self, episode, params):
-        wandb.log({
-            "kl_loss": sum(self.last_kl_losses) / len(self.last_kl_losses),
-            "mse_loss": sum(self.last_mse_losses) / len(self.last_mse_losses),
+        if params["logging"]:
+            wandb.log({
+                "kl_loss": sum(self.last_kl_losses) / len(self.last_kl_losses),
+                "mse_loss": sum(self.last_mse_losses) / len(self.last_mse_losses),
 
-        }, step=episode*params["num_steps"]*params["num_batches"])
+            }, step=episode*params["num_steps"]*params["num_batches"])
         self.last_kl_losses = []
         self.last_mse_losses = []
         
