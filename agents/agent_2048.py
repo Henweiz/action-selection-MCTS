@@ -10,11 +10,13 @@ class Agent2048(Agent):
 
     def normalize_rewards(self, r):
         # Log2 the rewards and then normalize given that 2^16 is the highest realistic reward
-        return jnp.log2(r + 1) / 16
+        # return jnp.log2(r + 1) / 16
+        return r / 50
 
     def reverse_normalize_rewards(self, r):
          # do the reverse of the above
-        return 2 ** (r * 16) - 1
+        # return 2 ** (r * 16) - 1
+        return r * 50
 
     def input_shape_fn(self, observation_spec):
         return observation_spec.board.shape

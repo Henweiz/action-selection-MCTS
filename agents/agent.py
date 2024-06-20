@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import optax
 from networks.network_2048 import PolicyValueNetwork_2048
 from flax.training import train_state, checkpoints
+import wandb
 
 class Agent: 
     def __init__(self, params):
@@ -21,7 +22,10 @@ class Agent:
 
         self.net_apply_fn = jax.jit(self.train_state.apply_fn)
         self.grad_fn = jax.value_and_grad(self.loss_fn)
-    
+
+        self.last_mse_losses = []
+        self.last_kl_losses = []
+
     def input_shape_fn(self, observation_spec):
         raise NotImplementedError()
 
@@ -46,8 +50,6 @@ class Agent:
     def loss_fn(self, params, states, actions, returns):
         # KL Loss for policy part of the network:
         probs, values = self.net_apply_fn(params, states)
-
-
         # optax expects this to be log probabilities
         log_probs = jnp.log(probs + 1e-9)
 
@@ -60,12 +62,15 @@ class Agent:
         mse_loss = optax.l2_loss(values.flatten(), returns)
         mse_loss = jnp.mean(mse_loss)
 
+        self.last_mse_losses.append(mse_loss.item())
+        self.last_kl_losses.append(kl_loss.item())
+
         return kl_loss + mse_loss
 
 
-    def update_fn(self, states, actions, returns):
+    def update_fn(self, states, actions, returns, episode):
         returns = self.normalize_rewards(returns)
-        loss, grads = self.grad_fn(self.train_state.params, states, actions, returns)
+        loss, grads = self.grad_fn(self.train_state.params, states, actions, returns, episode)
         self.train_state = self.train_state.apply_gradients(grads=grads)
         return loss
 
@@ -88,6 +93,15 @@ class Agent:
         value = self.reverse_normalize_rewards(value)
 
         return renormalized_actions, value
+
+    def log_losses(self, episode, params):
+        wandb.log({
+            "kl_loss": sum(self.last_kl_losses) / len(self.last_kl_losses),
+            "mse_loss": sum(self.last_mse_losses) / len(self.last_mse_losses),
+
+        }, step=episode*params["num_steps"]*params["num_batches"])
+        self.last_kl_losses = []
+        self.last_mse_losses = []
         
     
     def mask_actions(self, actions, mask):
