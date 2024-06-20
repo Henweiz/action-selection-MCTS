@@ -32,7 +32,7 @@ from wandb_logging import init_wandb, log_rewards
 params = {
     "env_name": "Knapsack-v1",
     "maze_size": (5, 5),
-    "policy": "default",
+    "policy": "KL_ex_prop",
     "agent": AgentKnapsack,
     "num_channels": 32,
     "seed": 42,
@@ -286,21 +286,18 @@ if __name__ == "__main__":
         fake_timestep = {
             "q_value": jnp.zeros((params['num_steps'])),
             "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-            "rewards": jnp.zeros((1), dtype=jnp.float32),
             "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.float32)
         }
     elif params["env_name"] == "Snake-v1":
         fake_timestep = {
             "q_value": jnp.zeros((params['num_steps'])),
             "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-            "rewards": jnp.zeros((params['num_steps']), dtype=jnp.float32),
             "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.float32)
         }
     else:
         fake_timestep = {
             "q_value": jnp.zeros((params['num_steps'])),
             "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-            "rewards": jnp.zeros((params['num_steps']), dtype=jnp.float32),
             "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.int32)
         }
     buffer_state = buffer.init(fake_timestep)
@@ -328,15 +325,6 @@ if __name__ == "__main__":
         # Get state in the correct format given environment
         states = agent.get_state_from_observation(timestep.observation, True)
 
-        logged_rewards = timestep.reward
-        if params["env_name"] == "Knapsack-v1":
-            end_steps = jnp.where(timestep.step_type == 2, 1.0, 0.0)
-            end_steps_count = jnp.sum(end_steps, axis=-1)
-            per_batch_total_rewards = jnp.sum(timestep.reward, axis=-1)
-            per_batch_per_game_rewards = jnp.divide(
-                per_batch_total_rewards, end_steps_count
-            )
-            logged_rewards = jnp.expand_dims(per_batch_per_game_rewards, axis=-1)
 
         # Add data to buffer
         buffer_state = buffer.add(
@@ -344,7 +332,6 @@ if __name__ == "__main__":
             {
                 "q_value": q_values,
                 "actions": actions,
-                "rewards": logged_rewards,  # agent.normalize_rewards(timestep.reward),
                 "states": states,
             },
         )
