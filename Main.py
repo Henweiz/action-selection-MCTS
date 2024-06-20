@@ -37,7 +37,7 @@ params = {
     "num_channels": 32,
     "seed": 42,
     "lr": 2e-4,  # 0.00003
-    "num_episodes": 2000,
+    "num_episodes": 4000,
     "num_steps": 200,
     "num_actions": 4,
     "obs_spec": Optional,
@@ -45,7 +45,7 @@ params = {
     "buffer_min_length": 256,
     "num_batches": 64,
     "sample_size": 256,
-    "num_simulations": 12,  # 16,
+    "num_simulations": 8,  # 16,
     "max_tree_depth": 4,  # 12,
     "discount": 1,
     "logging": True,
@@ -153,7 +153,6 @@ def get_actions(agent, state, timestep, subkey):
     return policy_output
 
 
-
 def get_rewards(timestep, prev_reward_arr, episode):
     rewards = []
     new_reward_arr = []
@@ -167,20 +166,26 @@ def get_rewards(timestep, prev_reward_arr, episode):
         prev_rewards = prev_reward_arr[batch_num]
 
         # go over all timesteps in the batch
-        for i, (step_type, ep_rew) in enumerate(zip(timestep.step_type[batch_num], timestep.reward[batch_num])):
+        for i, (step_type, ep_rew) in enumerate(
+            zip(timestep.step_type[batch_num], timestep.reward[batch_num])
+        ):
             # if the episode has ended, add the total reward to the rewards list
             if step_type == StepType.LAST:
                 # add the reward from the entire game and the timestep it happened
                 rew = {
                     "reward": sum(prev_rewards) + ep_rew,
                     "max_reward": max_reward,
-
                 }
                 prev_rewards = []
 
                 rewards.append(rew)
                 if params["logging"]:
-                    wandb.log(rew, step=(episode-1)*params["num_batches"]*params["num_steps"] + batch_num*params["num_steps"] + (i+1))
+                    wandb.log(
+                        rew,
+                        step=(episode - 1) * params["num_batches"] * params["num_steps"]
+                        + batch_num * params["num_steps"]
+                        + (i + 1),
+                    )
             else:
                 prev_rewards.append(ep_rew)
 
@@ -188,8 +193,12 @@ def get_rewards(timestep, prev_reward_arr, episode):
 
     avg_reward = sum([r["reward"] for r in rewards]) / max(1, len(rewards))
 
-    steps = (episode-1)*params["num_batches"]*params["num_steps"] + params["num_steps"]
-    print(f"Episode {episode}, Average reward: {str(round(avg_reward, 1))}, Max Reward: {max_reward}, Steps: {steps} / {params['num_episodes']*params['num_batches']*params['num_steps']}")
+    steps = (episode - 1) * params["num_batches"] * params["num_steps"] + params[
+        "num_steps"
+    ]
+    print(
+        f"Episode {episode}, Average reward: {str(round(avg_reward, 1))}, Max Reward: {max_reward}, Steps: {steps} / {params['num_episodes']*params['num_batches']*params['num_steps']}"
+    )
 
     return new_reward_arr
 
@@ -237,11 +246,14 @@ def gather_data(state, timestep, subkey):
 
 
 def train(agent: Agent, action_weights_arr, q_values_arr, states_arr, episode):
-    losses = [agent.update_fn(states, actions, q_values, episode)
-              for actions, q_values, states in zip(action_weights_arr, q_values_arr, states_arr)]
+    losses = [
+        agent.update_fn(states, actions, q_values, episode)
+        for actions, q_values, states in zip(
+            action_weights_arr, q_values_arr, states_arr
+        )
+    ]
 
     return jnp.mean(jnp.array(losses), axis=0)
-
 
 
 if __name__ == "__main__":
@@ -284,15 +296,23 @@ if __name__ == "__main__":
     # Specify buffer format
     if params["env_name"] in ["Snake-v1", "Knapsack-v1"]:
         fake_timestep = {
-            "q_value": jnp.zeros((params['num_steps'])),
-            "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-            "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.float32)
+            "q_value": jnp.zeros((params["num_steps"])),
+            "actions": jnp.zeros(
+                (params["num_steps"], params["num_actions"]), dtype=jnp.float32
+            ),
+            "states": jnp.zeros(
+                (params["num_steps"], *agent.input_shape), dtype=jnp.float32
+            ),
         }
     else:
         fake_timestep = {
-            "q_value": jnp.zeros((params['num_steps'])),
-            "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-            "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.int32)
+            "q_value": jnp.zeros((params["num_steps"])),
+            "actions": jnp.zeros(
+                (params["num_steps"], params["num_actions"]), dtype=jnp.float32
+            ),
+            "states": jnp.zeros(
+                (params["num_steps"], *agent.input_shape), dtype=jnp.int32
+            ),
         }
     buffer_state = buffer.init(fake_timestep)
 
@@ -305,7 +325,7 @@ if __name__ == "__main__":
     next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
 
     prev_reward_arr = [[] for _ in range(params["num_batches"])]
-    for episode in range(1, params["num_episodes"]+1):
+    for episode in range(1, params["num_episodes"] + 1):
 
         # Get new key every episode
         key, sample_key = jax.jit(jax.random.split)(key)
@@ -318,7 +338,6 @@ if __name__ == "__main__":
 
         # Get state in the correct format given environment
         states = agent.get_state_from_observation(timestep.observation, True)
-
 
         # Add data to buffer
         buffer_state = buffer.add(
@@ -333,7 +352,9 @@ if __name__ == "__main__":
         if buffer.can_sample(buffer_state):
             key, sample_key = jax.jit(jax.random.split)(key)
             data = buffer.sample(buffer_state, sample_key).experience.first
-            loss = train(agent, data["actions"], data["q_value"], data["states"], episode)
+            loss = train(
+                agent, data["actions"], data["q_value"], data["states"], episode
+            )
             agent.log_losses(episode, params)
         else:
             loss = None
