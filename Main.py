@@ -282,13 +282,7 @@ if __name__ == "__main__":
     )
 
     # Specify buffer format
-    if params["env_name"] == "Knapsack-v1":
-        fake_timestep = {
-            "q_value": jnp.zeros((params['num_steps'])),
-            "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
-            "states": jnp.zeros((params['num_steps'], *agent.input_shape), dtype=jnp.float32)
-        }
-    elif params["env_name"] == "Snake-v1":
+    if params["env_name"] in ["Snake-v1", "Knapsack-v1"]:
         fake_timestep = {
             "q_value": jnp.zeros((params['num_steps'])),
             "actions": jnp.zeros((params['num_steps'], params['num_actions']), dtype=jnp.float32),
