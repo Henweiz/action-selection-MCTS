@@ -38,14 +38,18 @@ class Agent:
     def reverse_normalize_rewards(self, r):
         return r
 
-    def save(self, path, step):
+    def save(self, path, step, prefix):
         checkpoints.save_checkpoint(
             target=self.train_state,
             ckpt_dir=path,
             step=step,
             overwrite=True,
-            prefix="agent_",
+            prefix=prefix
         )
+    
+    def load(self, path, prefix):
+        latest = checkpoints.latest_checkpoint(path, prefix=prefix)
+        self.train_state = checkpoints.restore_checkpoint(latest, target=self.train_state, prefix=prefix)
 
     def loss_fn(self, params, states, actions, returns, episode):
         # KL Loss for policy part of the network:
