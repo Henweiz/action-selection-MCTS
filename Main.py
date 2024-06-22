@@ -104,7 +104,7 @@ def get_actions(agent, state, timestep, subkey) -> mctx.PolicyOutput:
     """Get the actions from the MCTS"""
 
     def root_fn(state, timestep, _):
-        """TODO can someone explain what this function does?"""
+        """Define the root node of the MCTS function"""
         priors, value = agent.get_output(timestep.observation)
 
         root = mctx.RootFnOutput(
@@ -207,7 +207,7 @@ def step_fn(agent, state_timestep, subkey):
     # Take a step in the environment
     state, timestep = env_step(state, best_action)
 
-    # TODO explain this
+    # Get the Q_Value based on the action we selected.
     q_value = actions.search_tree.summary().qvalues[
         actions.search_tree.ROOT_INDEX, best_action
     ]
