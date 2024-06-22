@@ -13,6 +13,7 @@ class PolicyValueNetwork_2048(nn.Module):
     @nn.compact
     def __call__(self, x):
         # Conv Layers + MLP Layer.
+
         k_size = (2, 2)
         x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)
@@ -20,20 +21,17 @@ class PolicyValueNetwork_2048(nn.Module):
 
         # Policy Layers.
         actions = nn.Dense(128)(x) # TODO try value norm
-        # actions = nn.LayerNorm()(actions)  # Value norm layer added here
         actions = nn.leaky_relu(actions)
         actions = nn.Dense(128)(actions)
-        # actions = nn.LayerNorm()(actions)  # Value norm layer added here
         actions = nn.leaky_relu(actions)
         actions = nn.Dense(self.num_actions)(actions)
         actions = nn.softmax(actions)
 
+
         # Value Layers
         value = nn.Dense(256)(x)
-        value = nn.LayerNorm()(value)  # Value norm layer added here
         value = nn.leaky_relu(value)
         value = nn.Dense(256)(value)
-        value = nn.LayerNorm()(value)  # Value norm layer added here
         value = nn.leaky_relu(value)
         value = nn.Dense(1)(value)
 

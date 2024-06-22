@@ -3,19 +3,13 @@ from functools import partial
 from typing import Optional
 
 import flashbax as fbx
+import numpy as np
 from flashbax.vault import Vault
 import jax
 import jax.numpy as jnp
 from jax import random
 from flax.training import checkpoints
 
-import logging
-from agents.agent import Agent
-from agents.agent_2048 import Agent2048
-from agents.agent_snake import AgentSnake
-from agents.agent_maze import AgentMaze
-from agents.agent_knapsack import AgentKnapsack
-from visualize import get_max_tree_depth
 import jumanji
 import mctx
 from jumanji.environments.routing.maze import generator
@@ -28,14 +22,14 @@ from action_selection_rules.solve_trust_region import VariationalKullbackLeibler
 from agents.agent import Agent
 from agents.agent_2048 import Agent2048
 from tree_policies import muzero_custom_policy
-from wandb_logging import init_wandb, log_rewards
+from wandb_logging import init_wandb
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
-    "env_name": "Knapsack-v1",
+    "env_name": "Game2048-v1",
     "maze_size": (5, 5),
     "policy": "default",
-    "agent": AgentKnapsack,
+    "agent": Agent2048,
     "num_channels": 32,
     "seed": 42,
     "lr": 2e-4,  # 0.00003
@@ -45,16 +39,17 @@ params = {
     "obs_spec": Optional,
     "buffer_max_length": 2000,
     "buffer_min_length": 2,
-    "num_batches": 8,
-    "sample_size": 64,
+    "num_batches": 128,
+    "sample_size": 512,
     "num_simulations": 32,  # 16,
-    "max_tree_depth": 5,  # 12,
-    "discount": 1,
+    "max_tree_depth": 12,  # 12,
+    "discount": 0.99,
     "logging": True,
     "run_in_kaggle": False,
-    "checkpoint_dir": r"/home/iwitko/repos/action-selection-MCTS/checkpoints",
-    "checkpoint_interval": 5,
+    "checkpoint_dir": r"/kaggle/working",
+    "checkpoint_interval": 500,
     "load_checkpoint": False,
+    "random": True,
 }
 
 policy_dict = {
@@ -160,16 +155,17 @@ def get_actions(agent, state, timestep, subkey) -> mctx.PolicyOutput:
     return policy_output
 
 
-def get_rewards(timestep, prev_reward_arr, episode):
-    rewards = []
-    new_reward_arr = []
+def get_rewards(timestep, prev_reward_arr, prev_state_arr, episode):
+    rewards, new_reward_arr, new_state_arr = [], [], []
     max_reward = jnp.max(timestep.reward)
+    found_2048 = False
 
     # go over all batches
     for batch_num in range(len(prev_reward_arr)):
 
         # the previous rewards for this batch
         prev_reward = prev_reward_arr[batch_num]
+        prev_states = prev_state_arr[batch_num]
 
         # go over all timesteps in the batch
         for i, (step_type, ep_rew) in enumerate(
@@ -179,10 +175,11 @@ def get_rewards(timestep, prev_reward_arr, episode):
             if step_type == StepType.LAST:
                 # add the reward from the entire game and the timestep it happened
                 rew = {
-                    "reward": prev_reward + ep_rew,
+                    "reward": sum(prev_reward) + ep_rew,
                     "max_reward": max_reward,
                 }
-                prev_reward = 0
+                prev_reward = []
+                prev_states = []
 
                 rewards.append(rew)
                 if params["logging"]:
@@ -193,9 +190,18 @@ def get_rewards(timestep, prev_reward_arr, episode):
                         + (i + 1),
                     )
             else:
-                prev_reward += ep_rew
+                prev_reward.append(ep_rew)
+                prev_states.append(timestep.observation.board[batch_num][i])
+                if params['env_name'] == 'Game2048-v1' and timestep.extras['highest_tile'][batch_num][i] >= 2048 and not found_2048:  # TODO change to 2048
+                    # save prev states to a file
+                    found_2048 = True
+                    # todo add / before kaggle
+                    np.save(f"kaggle/working/2048_states_{episode}.npy", prev_states)
+                    np.save(f"kaggle/working/2048_rewards_{episode}.npy", prev_reward)
+                    print("Found 2048, saving states")
 
         new_reward_arr.append(prev_reward)
+        new_state_arr.append(prev_states)
 
     avg_reward = sum([r["reward"] for r in rewards]) / max(1, len(rewards))
 
@@ -206,7 +212,7 @@ def get_rewards(timestep, prev_reward_arr, episode):
         f"Episode {episode}, Average reward: {str(round(avg_reward, 1))}, Max Reward: {max_reward}, Steps: {steps} / {params['num_episodes']*params['num_batches']*params['num_steps']}"
     )
 
-    return new_reward_arr
+    return new_reward_arr, new_state_arr
 
 
 def step_fn(agent, state_timestep, subkey):
@@ -217,8 +223,8 @@ def step_fn(agent, state_timestep, subkey):
     assert actions.action.shape[0] == 1
     assert actions.action_weights.shape[0] == 1
 
-    # key = jax.random.PRNGKey(42)
     best_action = actions.action[0]
+
 
     state, timestep = env_step(state, best_action)
     q_value = actions.search_tree.summary().qvalues[
@@ -342,7 +348,9 @@ if __name__ == "__main__":
     # Get the initial state and timestep
     next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
 
-    prev_reward_arr = [0 for _ in range(params["num_batches"])]
+    prev_reward_arr = [[] for _ in range(params["num_batches"])]
+    prev_state_arr = [[next_ep_timestep.observation.board[i]] for i in range(params["num_batches"])]
+
     for episode in range(1, params["num_episodes"] + 1):
 
         # Get new key every episode
@@ -355,7 +363,7 @@ if __name__ == "__main__":
         # print("TREE DEPTH")
         # print(tree_depth)
 
-        prev_reward_arr = get_rewards(timestep, prev_reward_arr, episode)
+        prev_reward_arr, prev_state_arr = get_rewards(timestep, prev_reward_arr, prev_state_arr, episode)
 
         # Get state in the correct format given environment
         states = agent.get_state_from_observation(timestep.observation, True)

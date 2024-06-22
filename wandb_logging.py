@@ -9,6 +9,7 @@ env_short_names = {
 }
 
 def init_wandb(params):
+
     if params["run_in_kaggle"]:
         from kaggle_secrets import UserSecretsClient
         user_secrets = UserSecretsClient()
@@ -21,11 +22,9 @@ def init_wandb(params):
                       ["maze_size", "agent", "num_actions", "obs_spec", "run_in_kaggle", "logging", "buffer_max_length", "buffer_min_length"]}
 
     wandb.login(key=wandb_api)
+    preamble = "random" if params["random"] else ""
     wandb.init(
         project="action-selection-mcts",
-        name=f"{env_short_names[params['env_name']]}_{params['policy']}_sim{params['num_simulations']}_seed{params['seed']}",
+        name=f"{preamble}{env_short_names[params['env_name']]}_{params['policy']}_sim{params['num_simulations']}_seed{params['seed']}",
         config=relevant_params)
 
-
-def log_rewards(reward, loss, episode, params):
-    wandb.log(reward)
