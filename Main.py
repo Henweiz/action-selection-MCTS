@@ -246,10 +246,10 @@ def gather_data(state, timestep, subkey):
     return timestep, actions, q_values, next_ep_state, next_ep_timestep, trees
 
 
-def train(agent: Agent, action_weights_arr, q_values_arr, states_arr, episode):
+def train(agent: Agent, action_weights_arr, q_values_arr, states_arr):
     """Train the agent on the gathered data."""
     losses = [
-        agent.update_fn(states, actions, q_values, episode)
+        agent.update_fn(states, actions, q_values)
         for actions, q_values, states in zip(
             action_weights_arr, q_values_arr, states_arr
         )
@@ -371,7 +371,7 @@ if __name__ == "__main__":
             # Get the data to train from the buffer
             data = buffer.sample(buffer_state, sample_key).experience.first
             loss = train(
-                agent, data["actions"], data["q_value"], data["states"], episode
+                agent, data["actions"], data["q_value"], data["states"]
             )
             agent.log_losses(episode, params)
 

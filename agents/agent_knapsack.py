@@ -26,8 +26,7 @@ class AgentKnapsack(Agent):
     
         self.last_mse_losses = []
         self.last_kl_losses = []
-    # def mask_actions(self, actions, mask):
-    #     return actions
+
 
     def input_shape_fn(self, observation_spec):
         return (4, *observation_spec.weights.shape)

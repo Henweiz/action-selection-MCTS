@@ -1,5 +1,4 @@
 import wandb
-import jax.numpy as jnp
 
 env_short_names = {
  "Game2048-v1": "2048",
@@ -25,7 +24,3 @@ def init_wandb(params):
         project="action-selection-mcts",
         name=f"{env_short_names[params['env_name']]}_{params['policy']}_sim{params['num_simulations']}_seed{params['seed']}",
         config=relevant_params)
-
-
-def log_rewards(reward, loss, episode, params):
-    wandb.log(reward)

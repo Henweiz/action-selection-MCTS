@@ -14,8 +14,8 @@ class PolicyValueNetwork(nn.Module):
         x = nn.leaky_relu(x)
         x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)
-        x = jnp.reshape(x, (x.shape[0], -1))  # Flatten
-
+        # Flatten
+        x = jnp.reshape(x, (x.shape[0], -1))
 
         # Policy Layers.
         actions = nn.Dense(64)(x)

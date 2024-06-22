@@ -1,3 +1,5 @@
+"""Methods used for turning the codebase into a python notebook"""
+
 import ast
 import os
 from collections import defaultdict, deque

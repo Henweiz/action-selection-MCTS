@@ -6,11 +6,11 @@ from flax.training import train_state
 import optax
 from jax import random
 
-
+# TODO is this still used or can it be removed?
 class CNNPolicyNetwork(nn.Module):
     """A simple policy network that outputs a probability distribution over actions."""
 
-    num_actions: int # Number of possible actions
+    num_actions: int
     num_channels: int
 
     @nn.compact
@@ -34,19 +34,14 @@ class CNNPolicyNetwork(nn.Module):
         return x
 
 
-# Define the Value Network
 class CNNValueNetwork(nn.Module):
     """A simple value network."""
-    #num_outputs: int = 1
     num_channels: int
 
     @nn.compact
     def __call__(self, x):
-        # key = random.PRNGKey(758493)
-        # x = random.uniform(key, shape=x.shape)
         k_size = (3, 3)
 
-        #x = jnp.reshape(x, (x.shape[0], -1)) # flatten
         x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)
         x = nn.leaky_relu(x)
         x = nn.Conv(features=self.num_channels, kernel_size=k_size)(x)

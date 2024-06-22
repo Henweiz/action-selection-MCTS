@@ -2,6 +2,7 @@ import chex
 import mctx
 import numpy as np
 
+# TODO clean up and comment
 
 def get_max_tree_depth(tree: mctx.Tree):
     # chex.assert_rank(tree.node_values, 2)

@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 import chex
 import haiku as hk
-from flax.linen import compact
 from jumanji.training.networks.knapsack.actor_critic import (
     make_knapsack_masks,
     make_knapsack_query,
@@ -17,6 +16,8 @@ config = {
     "transformer_key_size": 16,
     "transformer_mlp_units": [512],
 }
+
+# TODO add some comments
 
 def value_fn(observation: Observation) -> chex.Array:
     torso = KnapsackTorso(

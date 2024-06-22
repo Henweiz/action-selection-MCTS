@@ -4,7 +4,7 @@ from sort_files import sort_files
 import nbformat as nbf
 import os
 import re
-
+"""Methods for creating a Jupyter notebook from the files in the codebase."""
 
 
 def create_notebook_from_files(filepaths):

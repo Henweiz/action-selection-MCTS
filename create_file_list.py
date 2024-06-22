@@ -1,4 +1,4 @@
-import os
+"""Used for creating a list of files from a file list file. this is used to make the codebase into a python notebook"""
 
 def create_file_list(root_dir, file_list_file='files.txt'):
     with open(file_list_file, 'r') as file:
