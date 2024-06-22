@@ -16,34 +16,34 @@ import wandb
 from action_selection_rules.solve_norm import ExPropKullbackLeibler, SquaredHellinger
 from action_selection_rules.solve_trust_region import VariationalKullbackLeibler
 from agents.agent import Agent
-from agents.agent_knapsack import AgentKnapsack
+from agents.agent_2048 import Agent2048
 from tree_policies import muzero_custom_policy
 from wandb_logging import init_wandb
 
 # Environments: Snake-v1, Knapsack-v1, Game2048-v1, Maze-v0
 params = {
-    "env_name": "Knapsack-v1",
+    "env_name": "Game2048-v1",
     "maze_size": (5, 5),
-    "policy": "default",
-    "agent": AgentKnapsack,
+    "policy": "KL_ex_prop",
+    "agent": Agent2048,
     "num_channels": 32,
     "seed": 42,
     "lr": 2e-4,
-    "num_episodes": 40,
+    "num_episodes": 785,
     "num_steps": 100,
     "num_actions": 4,
     "obs_spec": Optional,
-    "buffer_max_length": 2000,
+    "buffer_max_length": 100000,
     "buffer_min_length": 2,
-    "num_batches": 8,
-    "sample_size": 64,
-    "num_simulations": 32,
-    "max_tree_depth": 12,
-    "discount": 1,
+    "num_batches": 128,
+    "sample_size": 512,
+    "num_simulations": 8,
+    "max_tree_depth": 5,
+    "discount": 0.99,
     "logging": True,
     "run_in_kaggle": False,
     "checkpoint_dir": r"/home/iwitko/repos/action-selection-MCTS/checkpoints",
-    "checkpoint_interval": 5,
+    "checkpoint_interval": 500000,
     "load_checkpoint": False,
 }
 
