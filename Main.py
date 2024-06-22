@@ -163,14 +163,13 @@ def get_actions(agent, state, timestep, subkey) -> mctx.PolicyOutput:
 def get_rewards(timestep, prev_reward_arr, episode):
     rewards = []
     new_reward_arr = []
-
     max_reward = jnp.max(timestep.reward)
 
     # go over all batches
     for batch_num in range(len(prev_reward_arr)):
 
         # the previous rewards for this batch
-        prev_rewards = prev_reward_arr[batch_num]
+        prev_reward = prev_reward_arr[batch_num]
 
         # go over all timesteps in the batch
         for i, (step_type, ep_rew) in enumerate(
@@ -180,10 +179,10 @@ def get_rewards(timestep, prev_reward_arr, episode):
             if step_type == StepType.LAST:
                 # add the reward from the entire game and the timestep it happened
                 rew = {
-                    "reward": sum(prev_rewards) + ep_rew,
+                    "reward": prev_reward + ep_rew,
                     "max_reward": max_reward,
                 }
-                prev_rewards = []
+                prev_reward = 0
 
                 rewards.append(rew)
                 if params["logging"]:
@@ -194,9 +193,9 @@ def get_rewards(timestep, prev_reward_arr, episode):
                         + (i + 1),
                     )
             else:
-                prev_rewards.append(ep_rew)
+                prev_reward += ep_rew
 
-        new_reward_arr.append(prev_rewards)
+        new_reward_arr.append(prev_reward)
 
     avg_reward = sum([r["reward"] for r in rewards]) / max(1, len(rewards))
 
@@ -343,7 +342,7 @@ if __name__ == "__main__":
     # Get the initial state and timestep
     next_ep_state, next_ep_timestep = jax.vmap(env.reset)(keys)
 
-    prev_reward_arr = [[] for _ in range(params["num_batches"])]
+    prev_reward_arr = [0 for _ in range(params["num_batches"])]
     for episode in range(1, params["num_episodes"] + 1):
 
         # Get new key every episode
