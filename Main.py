@@ -382,10 +382,11 @@ if __name__ == "__main__":
         if buffer.can_sample(buffer_state):
             key, sample_key = jax.jit(jax.random.split)(key)
             data = buffer.sample(buffer_state, sample_key).experience.first
-            loss = train(
-                agent, data["actions"], data["q_value"], data["states"], episode
-            )
-            agent.log_losses(episode, params)
+            if not params["random"]:
+                loss = train(
+                    agent, data["actions"], data["q_value"], data["states"], episode
+                )
+                agent.log_losses(episode, params)
         else:
             loss = None
 
