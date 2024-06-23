@@ -42,7 +42,7 @@ def step_fn(state_timestep, subkey):
     # key = jax.random.PRNGKey(42)
     possible_actions = jnp.arange(4)
     random_action = jax.random.choice(subkey, possible_actions, shape=(1,), replace=True)[0]
-    best_action = actions.action[0]
+    best_action = random_action
 
     state, timestep = env_step(state, best_action)
 
